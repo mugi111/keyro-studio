@@ -1,5 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+
+function readFilesUnder(directory: string, extension: string): string {
+  return readdirSync(directory)
+    .flatMap((entry) => {
+      const path = join(directory, entry);
+      if (statSync(path).isDirectory()) {
+        return readFilesUnder(path, extension);
+      }
+      return path.endsWith(extension) ? readFileSync(path, "utf8") : "";
+    })
+    .join("\n");
+}
 
 describe("security guardrails", () => {
   test("browser HTML uses restrictive CSP and local views assets", () => {
@@ -36,5 +49,11 @@ describe("security guardrails", () => {
     expect(ui).not.toMatch(/fs\./);
     expect(ui).not.toContain("named pipe");
     expect(ui).not.toContain("Unix socket");
+  });
+
+  test("ui does not import main infrastructure", () => {
+    const ui = readFilesUnder("src/ui", ".ts");
+    expect(ui).not.toMatch(/from ["'][^"']*infrastructure\/main/);
+    expect(ui).not.toMatch(/import\(["'][^"']*infrastructure\/main/);
   });
 });

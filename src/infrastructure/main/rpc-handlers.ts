@@ -1,7 +1,7 @@
 import { BrowserView } from "electrobun/bun";
 import { ok } from "../../shared/result";
 import type { StudioService } from "../../application/studio-service";
-import type { StudioRPC } from "./rpc-contract";
+import type { StudioRPC } from "../../shared/electrobun-rpc-contract";
 import type { PageConfig } from "../../domain/profile";
 import type { VirtualInput } from "../../application/ports/core-port";
 

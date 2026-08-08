@@ -1,13 +1,13 @@
 import type { ElectrobunRPCSchema, RPCSchema } from "electrobun";
-import type { PageConfig, StudioSnapshot } from "../../domain/profile";
 import type {
   ActionExecutionStatus,
   ConnectionStatus,
   CoreEvent,
   VirtualInput
-} from "../../application/ports/core-port";
-import type { DeviceLayout } from "../../shared/device-layout";
-import type { Result } from "../../shared/result";
+} from "../application/ports/core-port";
+import type { PageConfig, StudioSnapshot } from "../domain/profile";
+import type { DeviceLayout } from "./device-layout";
+import type { Result } from "./result";
 
 export type StudioBunRPC = RPCSchema<{
   requests: {
