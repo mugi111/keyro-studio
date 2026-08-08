@@ -1,0 +1,19 @@
+{
+  "name": "keyro-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "electrobun dev",
+    "dev": "electrobun dev",
+    "build": "electrobun build",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "check": "bun run typecheck && bun test"
+  },
+  "dependencies": {
+    "electrobun": "^1.18.1",
+    "typescript": "^7.0.2"
+  },
+  "devDependencies": {}
+}
