@@ -3,6 +3,7 @@ import { StudioService } from "../src/application/studio-service";
 import { createCoreAdapter, readCoreAdapterConfig } from "../src/infrastructure/main/core-adapter-factory";
 import { registerAppLifecycle } from "../src/infrastructure/main/app-lifecycle";
 import { MockActionExecutor } from "../src/infrastructure/main/mock-action-executor";
+import { OsOpenUrlExecutor } from "../src/infrastructure/main/os-open-url-executor";
 
 describe("core adapter factory", () => {
   test("defaults to mock mode", async () => {
@@ -43,6 +44,62 @@ describe("mock action executor", () => {
     if (failure.state === "failure") {
       expect(failure.message).not.toContain("Error:");
       expect(failure.message).toContain("Mock action executor");
+    }
+  });
+});
+
+describe("OS open URL executor", () => {
+  test("opens only validated http and https URLs through the injected opener", async () => {
+    const opened: string[] = [];
+    const executor = new OsOpenUrlExecutor((url) => {
+      opened.push(url);
+      return true;
+    });
+
+    const result = await executor.execute({ kind: "open_url", url: "https://example.com/a b" }, "Key 1");
+
+    expect(result.state).toBe("success");
+    expect(opened).toEqual(["https://example.com/a%20b"]);
+  });
+
+  test("does not invoke opener for disallowed URL schemes", async () => {
+    let called = false;
+    const executor = new OsOpenUrlExecutor(() => {
+      called = true;
+      return true;
+    });
+
+    const result = await executor.execute({ kind: "open_url", url: "javascript:alert(1)" }, "Key 1");
+
+    expect(result.state).toBe("failure");
+    expect(called).toBe(false);
+    if (result.state === "failure") {
+      expect(result.message).toContain("Only http and https");
+    }
+  });
+
+  test("converts opener rejection to a safe failure message", async () => {
+    const executor = new OsOpenUrlExecutor(() => {
+      throw new Error("native stack detail");
+    });
+
+    const result = await executor.execute({ kind: "open_url", url: "https://example.com/" }, "Key 1");
+
+    expect(result.state).toBe("failure");
+    if (result.state === "failure") {
+      expect(result.message).toBe("The operating system could not open the URL.");
+      expect(result.message).not.toContain("native stack detail");
+    }
+  });
+
+  test("converts opener false return to a user-facing failure", async () => {
+    const executor = new OsOpenUrlExecutor(() => false);
+
+    const result = await executor.execute({ kind: "open_url", url: "https://example.com/" }, "Key 1");
+
+    expect(result.state).toBe("failure");
+    if (result.state === "failure") {
+      expect(result.message).toBe("The operating system did not accept the URL.");
     }
   });
 });
