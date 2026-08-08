@@ -1,8 +1,10 @@
 import { ApplicationMenu, BrowserWindow, Utils } from "electrobun/bun";
-import { createMockStudioService } from "./mock-core-adapter";
+import { StudioService } from "../../application/studio-service";
+import { createCoreAdapter, readCoreAdapterConfig } from "./core-adapter-factory";
+import { registerAppLifecycle } from "./app-lifecycle";
 import { createStudioRPC } from "./rpc-handlers";
 
-const service = createMockStudioService();
+const service = new StudioService(createCoreAdapter(readCoreAdapterConfig()));
 const rpc = createStudioRPC(service);
 
 ApplicationMenu.setApplicationMenu([
@@ -35,11 +37,4 @@ const mainWindow = new BrowserWindow({
 
 mainWindow.webview.setNavigationRules(["views://studio/*"]);
 
-process.on("beforeExit", () => {
-  service.close();
-});
-
-process.on("SIGINT", async () => {
-  await service.close();
-  Utils.quit();
-});
+registerAppLifecycle(service, () => Utils.quit());
