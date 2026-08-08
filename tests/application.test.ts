@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createOpenUrlAction } from "../src/domain/action";
+import type { ActionExecutorPort } from "../src/application/ports/action-executor-port";
 import { MockCoreAdapter } from "../src/infrastructure/main/mock-core-adapter";
 import { StudioService } from "../src/application/studio-service";
 
@@ -104,5 +105,86 @@ describe("studio service with mock core", () => {
         expect(failure.value.message.includes("Error:")).toBe(false);
       }
     }
+  });
+
+  test("delegates assigned virtual inputs to the action executor", async () => {
+    const calls: Array<{ url: string; target: string }> = [];
+    const executor: ActionExecutorPort = {
+      execute: async (action, target) => {
+        calls.push({ url: action.url, target });
+        return { state: "success", target, message: "delegated" };
+      }
+    };
+    const service = new StudioService(new MockCoreAdapter({ actionExecutor: executor }));
+    const snapshot = await service.getSnapshot();
+    if (!snapshot.ok) throw new Error("snapshot failed");
+
+    const profile = snapshot.value.profiles[0]!;
+    const page = structuredClone(profile.pages[0]!);
+    const action = createOpenUrlAction("https://example.com/delegated");
+    if (!action.ok) throw new Error("action setup failed");
+    page.keys[0]!.action = action.value;
+    await service.savePage(profile.id, page);
+
+    const result = await service.sendVirtualInput({ type: "key", profileId: profile.id, pageIndex: 0, keyIndex: 0 });
+
+    expect(result.ok).toBe(true);
+    expect(calls).toEqual([{ url: "https://example.com/delegated", target: "Page 1 Key 1" }]);
+  });
+
+  test("does not invoke the action executor for unassigned controls", async () => {
+    let callCount = 0;
+    const executor: ActionExecutorPort = {
+      execute: async (_action, target) => {
+        callCount += 1;
+        return { state: "success", target, message: "unexpected" };
+      }
+    };
+    const service = new StudioService(new MockCoreAdapter({ actionExecutor: executor }));
+    const snapshot = await service.getSnapshot();
+    if (!snapshot.ok) throw new Error("snapshot failed");
+    const profile = snapshot.value.profiles[0]!;
+
+    const result = await service.sendVirtualInput({ type: "key", profileId: profile.id, pageIndex: 0, keyIndex: 0 });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.state).toBe("failure");
+    expect(callCount).toBe(0);
+  });
+
+  test("converts action executor exceptions to safe failure statuses", async () => {
+    const executor: ActionExecutorPort = {
+      execute: async () => {
+        throw new Error("internal executor stack detail");
+      }
+    };
+    const service = new StudioService(new MockCoreAdapter({ actionExecutor: executor }));
+    const events: string[] = [];
+    service.subscribe((event) => {
+      if (event.type === "action" && event.status.state === "failure") {
+        events.push(event.status.message);
+      }
+    });
+    const snapshot = await service.getSnapshot();
+    if (!snapshot.ok) throw new Error("snapshot failed");
+
+    const profile = snapshot.value.profiles[0]!;
+    const page = structuredClone(profile.pages[0]!);
+    const action = createOpenUrlAction("https://example.com/throws");
+    if (!action.ok) throw new Error("action setup failed");
+    page.keys[0]!.action = action.value;
+    await service.savePage(profile.id, page);
+
+    const result = await service.sendVirtualInput({ type: "key", profileId: profile.id, pageIndex: 0, keyIndex: 0 });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.state).toBe("failure");
+      if (result.value.state === "failure") {
+        expect(result.value.message).not.toContain("internal executor stack detail");
+        expect(result.value.message).toContain("Action execution failed");
+      }
+    }
+    expect(events).toEqual(["Action execution failed. Check the action settings and try again."]);
   });
 });

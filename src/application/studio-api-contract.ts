@@ -1,9 +1,9 @@
 import type {
-  ActionExecutionStatus,
   ConnectionStatus,
   CoreEvent,
   VirtualInput
 } from "./ports/core-port";
+import type { ActionExecutionStatus } from "./ports/action-executor-port";
 import type { PageConfig, StudioSnapshot } from "../domain/profile";
 import type { DeviceLayout } from "../shared/device-layout";
 import type { Result } from "../shared/result";

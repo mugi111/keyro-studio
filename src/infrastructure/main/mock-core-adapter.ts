@@ -9,23 +9,26 @@ import {
   type StudioSnapshot
 } from "../../domain/profile";
 import { StudioService } from "../../application/studio-service";
+import type { ActionExecutionStatus, ActionExecutorPort } from "../../application/ports/action-executor-port";
 import type {
-  ActionExecutionStatus,
   ConnectionStatus,
   CoreEvent,
   CorePort,
   Unsubscribe,
   VirtualInput
 } from "../../application/ports/core-port";
+import { MockActionExecutor } from "./mock-action-executor";
 
 type MockCoreOptions = {
   layout?: DeviceLayout;
+  actionExecutor?: ActionExecutorPort;
 };
 
 export class MockCoreAdapter implements CorePort {
   private status: ConnectionStatus = { state: "connected" };
   private snapshot: StudioSnapshot;
   private readonly listeners = new Set<(event: CoreEvent) => void>();
+  private readonly actionExecutor: ActionExecutorPort;
 
   constructor(options: MockCoreOptions = {}) {
     const layout = validateDeviceLayout(options.layout ?? defaultDeviceLayout);
@@ -38,6 +41,7 @@ export class MockCoreAdapter implements CorePort {
       profiles: [defaultProfile],
       activeProfileId: defaultProfile.id
     };
+    this.actionExecutor = options.actionExecutor ?? new MockActionExecutor();
   }
 
   subscribe(listener: (event: CoreEvent) => void): Unsubscribe {
@@ -143,9 +147,16 @@ export class MockCoreAdapter implements CorePort {
       return ok(status);
     }
 
-    const status: ActionExecutionStatus = action.url.includes("fail")
-      ? { state: "failure", target, message: "Mock Core refused this URL. Remove 'fail' from the URL and try again." }
-      : { state: "success", target, message: `open_url accepted: ${action.url}` };
+    let status: ActionExecutionStatus;
+    try {
+      status = await this.actionExecutor.execute(action, target);
+    } catch {
+      status = {
+        state: "failure",
+        target,
+        message: "Action execution failed. Check the action settings and try again."
+      };
+    }
 
     this.emit({ type: "action", status });
     return ok(status);
