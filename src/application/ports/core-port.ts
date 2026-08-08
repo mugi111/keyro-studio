@@ -1,6 +1,7 @@
 import type { DeviceLayout } from "../../shared/device-layout";
 import type { Result } from "../../shared/result";
 import type { PageConfig, Profile, StudioSnapshot } from "../../domain/profile";
+import type { ActionExecutionStatus } from "./action-executor-port";
 
 export type ConnectionStatus =
   | { state: "connecting" }
@@ -18,12 +19,6 @@ export type VirtualInput =
       encoderIndex: number;
       interaction: "rotateLeft" | "rotateRight" | "press";
     };
-
-export type ActionExecutionStatus =
-  | { state: "idle" }
-  | { state: "running"; target: string }
-  | { state: "success"; target: string; message: string }
-  | { state: "failure"; target: string; message: string };
 
 export type CoreEvent =
   | { type: "connection"; status: ConnectionStatus }

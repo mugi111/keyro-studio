@@ -47,6 +47,7 @@ describe("security guardrails", () => {
     expect(ui).not.toMatch(/from ["']bun:/);
     expect(ui).not.toMatch(/from ["']node:/);
     expect(ui).not.toMatch(/fs\./);
+    expect(ui).not.toMatch(/openExternal|shell\.open|execFile|spawn\(/);
     expect(ui).not.toContain("named pipe");
     expect(ui).not.toContain("Unix socket");
   });

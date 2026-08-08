@@ -1,6 +1,6 @@
 import type { PageConfig, Profile, StudioSnapshot } from "../domain/profile";
+import type { ActionExecutionStatus } from "../application/ports/action-executor-port";
 import type {
-  ActionExecutionStatus,
   ConnectionStatus,
   CoreEvent
 } from "../application/ports/core-port";

@@ -1,4 +1,5 @@
 import type { CorePort } from "../../application/ports/core-port";
+import { MockActionExecutor } from "./mock-action-executor";
 import { MockCoreAdapter } from "./mock-core-adapter";
 import { UnavailableCoreAdapter } from "./unavailable-core-adapter";
 
@@ -21,5 +22,5 @@ export function createCoreAdapter(config: CoreAdapterConfig): CorePort {
     );
   }
 
-  return new MockCoreAdapter();
+  return new MockCoreAdapter({ actionExecutor: new MockActionExecutor() });
 }

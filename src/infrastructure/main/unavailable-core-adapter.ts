@@ -1,8 +1,8 @@
 import { defaultDeviceLayout, type DeviceLayout } from "../../shared/device-layout";
 import { err, ok, type Result } from "../../shared/result";
 import { createEmptyProfile, type PageConfig, type Profile, type StudioSnapshot } from "../../domain/profile";
+import type { ActionExecutionStatus } from "../../application/ports/action-executor-port";
 import type {
-  ActionExecutionStatus,
   ConnectionStatus,
   CoreEvent,
   CorePort,
