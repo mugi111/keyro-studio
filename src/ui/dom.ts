@@ -265,11 +265,11 @@ function bindEvents(context: RenderContext) {
     await simulateCurrentInput(context);
   });
   context.root.querySelector("[data-action='disconnect']")?.addEventListener("click", async () => {
-    context.state = { ...context.state, connection: await context.api.simulateDisconnect() };
+    context.state = reduceCoreEvent(context.state, { type: "connection", status: await context.api.simulateDisconnect() });
     render(context);
   });
   context.root.querySelector("[data-action='reconnect']")?.addEventListener("click", async () => {
-    context.state = { ...context.state, connection: await context.api.simulateReconnect() };
+    context.state = reduceCoreEvent(context.state, { type: "connection", status: await context.api.simulateReconnect() });
     render(context);
   });
 }
