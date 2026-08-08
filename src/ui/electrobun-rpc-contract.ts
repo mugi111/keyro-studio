@@ -1,17 +1,17 @@
 import type { ElectrobunRPCSchema, RPCSchema } from "electrobun";
 import type { StudioEvents, StudioMessages, StudioRequests } from "../application/studio-api-contract";
 
-type StudioBunRPC = RPCSchema<{
+export type StudioWebviewBunRPC = RPCSchema<{
   requests: StudioRequests;
   messages: StudioMessages;
 }>;
 
-type StudioWebviewRPC = RPCSchema<{
+export type StudioWebviewSideRPC = RPCSchema<{
   requests: {};
   messages: StudioEvents;
 }>;
 
 export interface StudioWebviewElectrobunRPC extends ElectrobunRPCSchema {
-  bun: StudioBunRPC;
-  webview: StudioWebviewRPC;
+  bun: StudioWebviewBunRPC;
+  webview: StudioWebviewSideRPC;
 }
