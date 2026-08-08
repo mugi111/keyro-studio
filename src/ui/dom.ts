@@ -6,10 +6,14 @@ import { keyCount } from "../shared/device-layout";
 import type { VirtualInput } from "../application/ports/core-port";
 import {
   initialUIState,
+  draftUrlForCurrentTarget,
   markActionDraftChanged,
   markSaveFailed,
   markSaveStarted,
   reduceCoreEvent,
+  selectEncoderTarget,
+  selectKeyTarget,
+  selectPage,
   selectedPage,
   selectedProfile,
   type UIState
@@ -182,7 +186,7 @@ function actionEditorMarkup(state: UIState, page: PageConfig): string {
       ? page.keys[state.editingKeyIndex]?.action
       : page.encoders[state.editingEncoderIndex!]?.[state.editingEncoderControl!];
   const url = target?.kind === "open_url" ? target.url : "";
-  const draftUrl = state.draftActionUrl ?? url;
+  const draftUrl = draftUrlForCurrentTarget(state) ?? url;
   const label =
     state.editingKeyIndex != null
       ? `Key ${state.editingKeyIndex + 1}`
@@ -228,31 +232,25 @@ function bindEvents(context: RenderContext) {
 
   context.root.querySelectorAll<HTMLElement>("[data-page]").forEach((node) => {
     node.addEventListener("click", () => {
-      context.state = { ...context.state, selectedPageIndex: Number(node.dataset.page), editingKeyIndex: null };
+      context.state = selectPage(context.state, Number(node.dataset.page));
       render(context);
     });
   });
 
   context.root.querySelectorAll<HTMLElement>("[data-key]").forEach((node) => {
     node.addEventListener("click", () => {
-      context.state = {
-        ...context.state,
-        editingKeyIndex: Number(node.dataset.key),
-        editingEncoderIndex: null,
-        editingEncoderControl: null
-      };
+      context.state = selectKeyTarget(context.state, Number(node.dataset.key));
       render(context);
     });
   });
 
   context.root.querySelectorAll<HTMLElement>("[data-encoder-control]").forEach((node) => {
     node.addEventListener("click", () => {
-      context.state = {
-        ...context.state,
-        editingKeyIndex: null,
-        editingEncoderIndex: Number(node.dataset.encoderIndex),
-        editingEncoderControl: node.dataset.encoderControl as UIState["editingEncoderControl"]
-      };
+      context.state = selectEncoderTarget(
+        context.state,
+        Number(node.dataset.encoderIndex),
+        node.dataset.encoderControl as NonNullable<UIState["editingEncoderControl"]>
+      );
       render(context);
     });
   });
@@ -284,7 +282,7 @@ async function saveCurrentAction(context: RenderContext, clear: boolean) {
   const draftInput = context.root.querySelector("[data-field='action-url']") as HTMLInputElement | null;
   const actionResult = clear
     ? null
-    : createOpenUrlAction(context.state.draftActionUrl ?? draftInput?.value ?? "");
+    : createOpenUrlAction(draftUrlForCurrentTarget(context.state) ?? draftInput?.value ?? "");
   if (actionResult && !actionResult.ok) {
     context.state = markSaveFailed(context.state, actionResult.error.message);
     render(context);

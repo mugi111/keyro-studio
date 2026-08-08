@@ -12,7 +12,7 @@ export type UIState = {
   selectedPageIndex: number;
   actionStatus: ActionExecutionStatus;
   saveStatus: SaveStatus;
-  draftActionUrl: string | null;
+  actionDraft: ActionDraft | null;
   editingKeyIndex: number | null;
   editingEncoderIndex: number | null;
   editingEncoderControl: "rotateLeft" | "rotateRight" | "press" | null;
@@ -26,6 +26,20 @@ export type SaveStatus =
   | { state: "saved"; message: string }
   | { state: "failed"; message: string };
 
+export type ActionEditTarget =
+  | { type: "key"; pageIndex: number; keyIndex: number }
+  | {
+      type: "encoder";
+      pageIndex: number;
+      encoderIndex: number;
+      control: "rotateLeft" | "rotateRight" | "press";
+    };
+
+export type ActionDraft = {
+  target: ActionEditTarget;
+  url: string;
+};
+
 export const initialUIState: UIState = {
   connection: { state: "connecting" },
   snapshot: null,
@@ -33,7 +47,7 @@ export const initialUIState: UIState = {
   selectedPageIndex: 0,
   actionStatus: { state: "idle" },
   saveStatus: { state: "idle" },
-  draftActionUrl: null,
+  actionDraft: null,
   editingKeyIndex: null,
   editingEncoderIndex: null,
   editingEncoderControl: null,
@@ -42,7 +56,11 @@ export const initialUIState: UIState = {
 
 export function reduceCoreEvent(state: UIState, event: CoreEvent): UIState {
   if (event.type === "connection") {
-    return { ...state, connection: event.status };
+    return {
+      ...state,
+      connection: event.status,
+      saveStatus: normalizeSaveStatusForConnection(state.saveStatus, event.status)
+    };
   }
   if (event.type === "action") {
     return { ...state, actionStatus: event.status };
@@ -59,14 +77,16 @@ export function reduceCoreEvent(state: UIState, event: CoreEvent): UIState {
     selectedProfileId,
     selectedPageIndex: Math.min(state.selectedPageIndex, event.snapshot.layout.pageCount - 1),
     saveStatus: state.saveStatus.state === "saving" ? { state: "saved", message: "Saved to Core." } : state.saveStatus,
-    draftActionUrl: state.saveStatus.state === "saving" ? null : state.draftActionUrl
+    actionDraft: state.saveStatus.state === "saving" ? null : state.actionDraft
   };
 }
 
 export function markActionDraftChanged(state: UIState, url: string): UIState {
+  const target = currentEditTarget(state);
+  if (!target) return state;
   return {
     ...state,
-    draftActionUrl: url,
+    actionDraft: { target, url },
     saveStatus:
       state.connection.state === "connected"
         ? { state: "dirty", message: "Unsaved changes." }
@@ -93,10 +113,97 @@ export function markSaveFailed(state: UIState, message: string): UIState {
 export function clearSaveDraft(state: UIState): UIState {
   return {
     ...state,
-    draftActionUrl: null,
+    actionDraft: null,
     saveStatus: { state: "saved", message: "Saved to Core." },
     error: null
   };
+}
+
+export function selectPage(state: UIState, pageIndex: number): UIState {
+  return clearEditingTarget({
+    ...state,
+    selectedPageIndex: pageIndex
+  });
+}
+
+export function selectKeyTarget(state: UIState, keyIndex: number): UIState {
+  return clearDraftIfTargetChanged({
+    ...state,
+    editingKeyIndex: keyIndex,
+    editingEncoderIndex: null,
+    editingEncoderControl: null
+  });
+}
+
+export function selectEncoderTarget(
+  state: UIState,
+  encoderIndex: number,
+  control: "rotateLeft" | "rotateRight" | "press"
+): UIState {
+  return clearDraftIfTargetChanged({
+    ...state,
+    editingKeyIndex: null,
+    editingEncoderIndex: encoderIndex,
+    editingEncoderControl: control
+  });
+}
+
+export function draftUrlForCurrentTarget(state: UIState): string | null {
+  const target = currentEditTarget(state);
+  if (!target || !state.actionDraft) return null;
+  return sameEditTarget(target, state.actionDraft.target) ? state.actionDraft.url : null;
+}
+
+function clearEditingTarget(state: UIState): UIState {
+  return {
+    ...state,
+    editingKeyIndex: null,
+    editingEncoderIndex: null,
+    editingEncoderControl: null,
+    actionDraft: null,
+    saveStatus: state.saveStatus.state === "dirty" ? { state: "idle" } : state.saveStatus
+  };
+}
+
+function clearDraftIfTargetChanged(state: UIState): UIState {
+  const target = currentEditTarget(state);
+  if (!target || !state.actionDraft || sameEditTarget(target, state.actionDraft.target)) {
+    return state;
+  }
+  return {
+    ...state,
+    actionDraft: null,
+    saveStatus: state.saveStatus.state === "dirty" ? { state: "idle" } : state.saveStatus
+  };
+}
+
+function currentEditTarget(state: UIState): ActionEditTarget | null {
+  if (state.editingKeyIndex != null) {
+    return { type: "key", pageIndex: state.selectedPageIndex, keyIndex: state.editingKeyIndex };
+  }
+  if (state.editingEncoderIndex != null && state.editingEncoderControl) {
+    return {
+      type: "encoder",
+      pageIndex: state.selectedPageIndex,
+      encoderIndex: state.editingEncoderIndex,
+      control: state.editingEncoderControl
+    };
+  }
+  return null;
+}
+
+function sameEditTarget(left: ActionEditTarget, right: ActionEditTarget): boolean {
+  if (left.type !== right.type || left.pageIndex !== right.pageIndex) return false;
+  if (left.type === "key" && right.type === "key") return left.keyIndex === right.keyIndex;
+  if (left.type === "encoder" && right.type === "encoder") {
+    return left.encoderIndex === right.encoderIndex && left.control === right.control;
+  }
+  return false;
+}
+
+function normalizeSaveStatusForConnection(status: SaveStatus, connection: ConnectionStatus): SaveStatus {
+  if (connection.state === "connected" || status.state !== "dirty") return status;
+  return { state: "dirty", message: "Disconnected. Changes are not saved." };
 }
 
 export function selectedProfile(state: UIState): Profile | null {
