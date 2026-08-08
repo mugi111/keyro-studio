@@ -51,10 +51,10 @@ describe("security guardrails", () => {
     expect(ui).not.toContain("Unix socket");
   });
 
-  test("ui does not import main infrastructure", () => {
+  test("ui does not import infrastructure", () => {
     const ui = readFilesUnder("src/ui", ".ts");
-    expect(ui).not.toMatch(/from ["'][^"']*infrastructure\/main/);
-    expect(ui).not.toMatch(/import\(["'][^"']*infrastructure\/main/);
+    expect(ui).not.toMatch(/from ["'][^"']*infrastructure\//);
+    expect(ui).not.toMatch(/import\(["'][^"']*infrastructure\//);
   });
 
   test("shared layer does not import upward or framework modules", () => {
