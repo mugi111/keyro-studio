@@ -6,7 +6,14 @@ import { keyCount } from "../shared/device-layout";
 import type { VirtualInput } from "../application/ports/core-port";
 import {
   initialUIState,
+  draftUrlForCurrentTarget,
+  markActionDraftChanged,
+  markSaveFailed,
+  markSaveStarted,
   reduceCoreEvent,
+  selectEncoderTarget,
+  selectKeyTarget,
+  selectPage,
   selectedPage,
   selectedProfile,
   type UIState
@@ -127,6 +134,10 @@ function editorMarkup(state: UIState, profileId: string, page: PageConfig): stri
       ${actionEditorMarkup(state, page)}
     </section>
 
+    <section class="save-state ${state.saveStatus.state}">
+      ${saveStatusText(state)}
+    </section>
+
     <footer class="run-state ${state.actionStatus.state}">
       ${actionStatusText(state.actionStatus)}
     </footer>
@@ -175,6 +186,7 @@ function actionEditorMarkup(state: UIState, page: PageConfig): string {
       ? page.keys[state.editingKeyIndex]?.action
       : page.encoders[state.editingEncoderIndex!]?.[state.editingEncoderControl!];
   const url = target?.kind === "open_url" ? target.url : "";
+  const draftUrl = draftUrlForCurrentTarget(state) ?? url;
   const label =
     state.editingKeyIndex != null
       ? `Key ${state.editingKeyIndex + 1}`
@@ -183,7 +195,7 @@ function actionEditorMarkup(state: UIState, page: PageConfig): string {
   return `
     <label>
       <span>${label} open_url</span>
-      <input data-field="action-url" placeholder="https://example.com" value="${escapeHtml(url)}" />
+      <input data-field="action-url" placeholder="https://example.com" value="${escapeHtml(draftUrl)}" />
     </label>
     <div class="editor-actions">
       <button data-action="save-action">Save</button>
@@ -213,33 +225,32 @@ function bindEvents(context: RenderContext) {
     await applySnapshot(context, context.api.renameProfile(profileId, (event.target as HTMLInputElement).value));
   });
 
+  context.root.querySelector("[data-field='action-url']")?.addEventListener("input", (event) => {
+    context.state = markActionDraftChanged(context.state, (event.target as HTMLInputElement).value);
+    render(context);
+  });
+
   context.root.querySelectorAll<HTMLElement>("[data-page]").forEach((node) => {
     node.addEventListener("click", () => {
-      context.state = { ...context.state, selectedPageIndex: Number(node.dataset.page), editingKeyIndex: null };
+      context.state = selectPage(context.state, Number(node.dataset.page));
       render(context);
     });
   });
 
   context.root.querySelectorAll<HTMLElement>("[data-key]").forEach((node) => {
     node.addEventListener("click", () => {
-      context.state = {
-        ...context.state,
-        editingKeyIndex: Number(node.dataset.key),
-        editingEncoderIndex: null,
-        editingEncoderControl: null
-      };
+      context.state = selectKeyTarget(context.state, Number(node.dataset.key));
       render(context);
     });
   });
 
   context.root.querySelectorAll<HTMLElement>("[data-encoder-control]").forEach((node) => {
     node.addEventListener("click", () => {
-      context.state = {
-        ...context.state,
-        editingKeyIndex: null,
-        editingEncoderIndex: Number(node.dataset.encoderIndex),
-        editingEncoderControl: node.dataset.encoderControl as UIState["editingEncoderControl"]
-      };
+      context.state = selectEncoderTarget(
+        context.state,
+        Number(node.dataset.encoderIndex),
+        node.dataset.encoderControl as NonNullable<UIState["editingEncoderControl"]>
+      );
       render(context);
     });
   });
@@ -254,11 +265,11 @@ function bindEvents(context: RenderContext) {
     await simulateCurrentInput(context);
   });
   context.root.querySelector("[data-action='disconnect']")?.addEventListener("click", async () => {
-    context.state = { ...context.state, connection: await context.api.simulateDisconnect() };
+    context.state = reduceCoreEvent(context.state, { type: "connection", status: await context.api.simulateDisconnect() });
     render(context);
   });
   context.root.querySelector("[data-action='reconnect']")?.addEventListener("click", async () => {
-    context.state = { ...context.state, connection: await context.api.simulateReconnect() };
+    context.state = reduceCoreEvent(context.state, { type: "connection", status: await context.api.simulateReconnect() });
     render(context);
   });
 }
@@ -268,11 +279,12 @@ async function saveCurrentAction(context: RenderContext, clear: boolean) {
   const profile = selectedProfile(context.state);
   if (!page || !profile) return;
   const nextPage = structuredClone(page);
+  const draftInput = context.root.querySelector("[data-field='action-url']") as HTMLInputElement | null;
   const actionResult = clear
     ? null
-    : createOpenUrlAction((context.root.querySelector("[data-field='action-url']") as HTMLInputElement).value);
+    : createOpenUrlAction(draftUrlForCurrentTarget(context.state) ?? draftInput?.value ?? "");
   if (actionResult && !actionResult.ok) {
-    context.state = { ...context.state, error: actionResult.error.message };
+    context.state = markSaveFailed(context.state, actionResult.error.message);
     render(context);
     return;
   }
@@ -284,6 +296,8 @@ async function saveCurrentAction(context: RenderContext, clear: boolean) {
     nextPage.encoders[context.state.editingEncoderIndex]![context.state.editingEncoderControl] = nextAction;
   }
 
+  context.state = markSaveStarted(context.state);
+  render(context);
   await applySnapshot(context, context.api.savePage(profile.id, nextPage));
 }
 
@@ -313,7 +327,7 @@ async function applySnapshot(context: RenderContext, pending: Promise<Result<Non
   if (result.ok) {
     context.state = reduceCoreEvent({ ...context.state, error: null }, { type: "snapshot", snapshot: result.value });
   } else {
-    context.state = { ...context.state, error: result.error.message };
+    context.state = markSaveFailed(context.state, result.error.message);
   }
   render(context);
 }
@@ -336,6 +350,16 @@ function actionStatusText(status: UIState["actionStatus"]): string {
   if (status.state === "idle") return "No action has run yet.";
   if (status.state === "running") return `${status.target}: running`;
   return `${status.target}: ${status.message}`;
+}
+
+function saveStatusText(state: UIState): string {
+  if (state.connection.state !== "connected" && state.saveStatus.state !== "saving") {
+    return state.saveStatus.state === "dirty" || state.saveStatus.state === "failed"
+      ? state.saveStatus.message
+      : "Disconnected. Edits cannot be saved until Core reconnects.";
+  }
+  if (state.saveStatus.state === "idle") return "No unsaved changes.";
+  return state.saveStatus.message;
 }
 
 function escapeHtml(value: string): string {

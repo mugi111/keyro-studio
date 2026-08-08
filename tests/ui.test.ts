@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { describeGridColumns } from "../src/ui/dom";
-import { initialUIState, reduceCoreEvent } from "../src/ui/state";
+import {
+  clearSaveDraft,
+  draftUrlForCurrentTarget,
+  initialUIState,
+  markActionDraftChanged,
+  markSaveFailed,
+  markSaveStarted,
+  reduceCoreEvent,
+  selectKeyTarget
+} from "../src/ui/state";
 import { createEmptyProfile } from "../src/domain/profile";
 
 describe("ui state", () => {
@@ -19,5 +28,65 @@ describe("ui state", () => {
   test("describes variable key grids for component tests", () => {
     expect(describeGridColumns(3, 4)).toBe("3x4:12");
     expect(describeGridColumns(2, 5)).toBe("2x5:10");
+  });
+
+  test("tracks dirty and saving states for action drafts", () => {
+    const dirty = markActionDraftChanged(selectKeyTarget(initialUIState, 0), "https://example.com");
+    expect(dirty.saveStatus.state).toBe("dirty");
+    expect(dirty.actionDraft?.url).toBe("https://example.com");
+
+    const saving = markSaveStarted(dirty);
+    expect(saving.saveStatus.state).toBe("saving");
+    expect(saving.error).toBeNull();
+
+    const saved = clearSaveDraft(saving);
+    expect(saved.saveStatus.state).toBe("saved");
+    expect(saved.actionDraft).toBeNull();
+  });
+
+  test("keeps failed saves distinct from saved state", () => {
+    const disconnected = {
+      ...selectKeyTarget(initialUIState, 0),
+      connection: { state: "disconnected" as const, reason: "Core stopped." }
+    };
+    const dirty = markActionDraftChanged(disconnected, "https://example.com");
+    const failed = markSaveFailed(dirty, "Core is disconnected.");
+
+    expect(dirty.saveStatus).toEqual({ state: "dirty", message: "Disconnected. Changes are not saved." });
+    expect(failed.saveStatus).toEqual({ state: "failed", message: "Core is disconnected." });
+    expect(failed.actionDraft?.url).toBe("https://example.com");
+  });
+
+  test("snapshot acknowledgement after saving clears draft", () => {
+    const layout = { pageCount: 1, keyRows: 1, keyColumns: 1, encoderCount: 1 };
+    const profile = createEmptyProfile("p1", "Default", layout, true);
+    const saving = markSaveStarted(markActionDraftChanged(selectKeyTarget(initialUIState, 0), "https://example.com"));
+    const state = reduceCoreEvent(saving, {
+      type: "snapshot",
+      snapshot: { layout, profiles: [profile], activeProfileId: "p1" }
+    });
+
+    expect(state.saveStatus.state).toBe("saved");
+    expect(state.actionDraft).toBeNull();
+  });
+
+  test("clears action draft when switching edit targets", () => {
+    const editingKeyOne = selectKeyTarget(initialUIState, 0);
+    const dirty = markActionDraftChanged(editingKeyOne, "https://example.com/key-1");
+    const editingKeyTwo = selectKeyTarget(dirty, 1);
+
+    expect(draftUrlForCurrentTarget(dirty)).toBe("https://example.com/key-1");
+    expect(editingKeyTwo.actionDraft).toBeNull();
+    expect(draftUrlForCurrentTarget(editingKeyTwo)).toBeNull();
+  });
+
+  test("updates dirty save message when Core disconnects", () => {
+    const dirty = markActionDraftChanged(selectKeyTarget(initialUIState, 0), "https://example.com");
+    const disconnected = reduceCoreEvent(dirty, {
+      type: "connection",
+      status: { state: "disconnected", reason: "Core stopped." }
+    });
+
+    expect(disconnected.saveStatus).toEqual({ state: "dirty", message: "Disconnected. Changes are not saved." });
   });
 });
