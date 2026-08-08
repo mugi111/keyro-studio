@@ -151,4 +151,40 @@ describe("studio service with mock core", () => {
     if (result.ok) expect(result.value.state).toBe("failure");
     expect(callCount).toBe(0);
   });
+
+  test("converts action executor exceptions to safe failure statuses", async () => {
+    const executor: ActionExecutorPort = {
+      execute: async () => {
+        throw new Error("internal executor stack detail");
+      }
+    };
+    const service = new StudioService(new MockCoreAdapter({ actionExecutor: executor }));
+    const events: string[] = [];
+    service.subscribe((event) => {
+      if (event.type === "action" && event.status.state === "failure") {
+        events.push(event.status.message);
+      }
+    });
+    const snapshot = await service.getSnapshot();
+    if (!snapshot.ok) throw new Error("snapshot failed");
+
+    const profile = snapshot.value.profiles[0]!;
+    const page = structuredClone(profile.pages[0]!);
+    const action = createOpenUrlAction("https://example.com/throws");
+    if (!action.ok) throw new Error("action setup failed");
+    page.keys[0]!.action = action.value;
+    await service.savePage(profile.id, page);
+
+    const result = await service.sendVirtualInput({ type: "key", profileId: profile.id, pageIndex: 0, keyIndex: 0 });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.state).toBe("failure");
+      if (result.value.state === "failure") {
+        expect(result.value.message).not.toContain("internal executor stack detail");
+        expect(result.value.message).toContain("Action execution failed");
+      }
+    }
+    expect(events).toEqual(["Action execution failed. Check the action settings and try again."]);
+  });
 });

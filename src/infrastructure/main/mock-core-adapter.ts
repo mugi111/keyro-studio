@@ -147,7 +147,16 @@ export class MockCoreAdapter implements CorePort {
       return ok(status);
     }
 
-    const status = await this.actionExecutor.execute(action, target);
+    let status: ActionExecutionStatus;
+    try {
+      status = await this.actionExecutor.execute(action, target);
+    } catch {
+      status = {
+        state: "failure",
+        target,
+        message: "Action execution failed. Check the action settings and try again."
+      };
+    }
 
     this.emit({ type: "action", status });
     return ok(status);

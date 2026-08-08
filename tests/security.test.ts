@@ -43,7 +43,7 @@ describe("security guardrails", () => {
   });
 
   test("ui has no direct bun, node, fs, pipe, or socket access", () => {
-    const ui = readFileSync("src/ui/index.ts", "utf8") + readFileSync("src/ui/dom.ts", "utf8");
+    const ui = readFilesUnder("src/ui", ".ts");
     expect(ui).not.toMatch(/from ["']bun:/);
     expect(ui).not.toMatch(/from ["']node:/);
     expect(ui).not.toMatch(/fs\./);
