@@ -15,8 +15,18 @@ describe("security guardrails", () => {
     const main = readFileSync("src/infrastructure/main/index.ts", "utf8");
     expect(main).toContain("views://studio/index.html");
     expect(main).toContain("setNavigationRules");
+    expect(main).toContain("registerAppLifecycle");
     expect(main).not.toContain("Tray");
     expect(main).not.toContain("sqlite");
+  });
+
+  test("core adapter selection stays in main infrastructure", () => {
+    const factory = readFileSync("src/infrastructure/main/core-adapter-factory.ts", "utf8");
+    const ui = readFileSync("src/ui/index.ts", "utf8") + readFileSync("src/ui/dom.ts", "utf8");
+
+    expect(factory).toContain("KEYRO_STUDIO_CORE_MODE");
+    expect(factory).toContain("local-ipc");
+    expect(ui).not.toContain("KEYRO_STUDIO_CORE_MODE");
   });
 
   test("ui has no direct bun, node, fs, pipe, or socket access", () => {

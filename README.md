@@ -24,6 +24,8 @@ bun run check
 bun run dev
 ```
 
+Set `KEYRO_STUDIO_CORE_MODE=local-ipc` to exercise the future Core IPC adapter boundary. Until `keyro-protocol` is defined, that mode intentionally reports Core as unavailable. The default mode is `mock`.
+
 ## Security Notes
 
 - The browser view loads bundled `views://` assets, not remote web content.
