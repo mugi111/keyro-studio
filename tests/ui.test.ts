@@ -89,4 +89,21 @@ describe("ui state", () => {
 
     expect(disconnected.saveStatus).toEqual({ state: "dirty", message: "Disconnected. Changes are not saved." });
   });
+
+  test("keeps failed draft resavable after Core reconnects", () => {
+    const disconnected = {
+      ...selectKeyTarget(initialUIState, 0),
+      connection: { state: "disconnected" as const, reason: "Core stopped." }
+    };
+    const dirty = markActionDraftChanged(disconnected, "https://example.com/retry");
+    const failed = markSaveFailed(dirty, "Core is disconnected.");
+    const reconnected = reduceCoreEvent(failed, {
+      type: "connection",
+      status: { state: "connected" }
+    });
+
+    expect(reconnected.actionDraft?.url).toBe("https://example.com/retry");
+    expect(draftUrlForCurrentTarget(reconnected)).toBe("https://example.com/retry");
+    expect(reconnected.saveStatus).toEqual({ state: "dirty", message: "Reconnected. Changes are not saved yet." });
+  });
 });
