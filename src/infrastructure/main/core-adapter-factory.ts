@@ -1,5 +1,10 @@
 import type { CorePort } from "../../application/ports/core-port";
-import { MockActionExecutor } from "./mock-action-executor";
+import {
+  createActionExecutor,
+  readActionExecutorMode,
+  type ActionExecutorFactoryDeps,
+  type ActionExecutorMode
+} from "./action-executor-factory";
 import { MockCoreAdapter } from "./mock-core-adapter";
 import { UnavailableCoreAdapter } from "./unavailable-core-adapter";
 
@@ -7,20 +12,25 @@ export type CoreAdapterMode = "mock" | "local-ipc";
 
 export type CoreAdapterConfig = {
   mode: CoreAdapterMode;
+  actionExecutorMode: ActionExecutorMode;
 };
 
 export function readCoreAdapterConfig(env: Record<string, string | undefined> = process.env): CoreAdapterConfig {
   const mode = env.KEYRO_STUDIO_CORE_MODE;
-  if (mode === "local-ipc") return { mode };
-  return { mode: "mock" };
+  return {
+    mode: mode === "local-ipc" ? mode : "mock",
+    actionExecutorMode: readActionExecutorMode(env)
+  };
 }
 
-export function createCoreAdapter(config: CoreAdapterConfig): CorePort {
+export type CoreAdapterFactoryDeps = ActionExecutorFactoryDeps;
+
+export function createCoreAdapter(config: CoreAdapterConfig, deps: CoreAdapterFactoryDeps = {}): CorePort {
   if (config.mode === "local-ipc") {
     return new UnavailableCoreAdapter(
       "Keyro Core local IPC is not wired yet because keyro-protocol is still undefined."
     );
   }
 
-  return new MockCoreAdapter({ actionExecutor: new MockActionExecutor() });
+  return new MockCoreAdapter({ actionExecutor: createActionExecutor(config.actionExecutorMode, deps) });
 }

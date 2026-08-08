@@ -35,11 +35,14 @@ describe("security guardrails", () => {
 
   test("core adapter selection stays in main infrastructure", () => {
     const factory = readFileSync("src/infrastructure/main/core-adapter-factory.ts", "utf8");
-    const ui = readFileSync("src/ui/index.ts", "utf8") + readFileSync("src/ui/dom.ts", "utf8");
+    const ui = readFilesUnder("src/ui", ".ts");
 
     expect(factory).toContain("KEYRO_STUDIO_CORE_MODE");
-    expect(factory).toContain("local-ipc");
+    expect(readFileSync("src/infrastructure/main/action-executor-factory.ts", "utf8")).toContain(
+      "KEYRO_STUDIO_ACTION_EXECUTOR"
+    );
     expect(ui).not.toContain("KEYRO_STUDIO_CORE_MODE");
+    expect(ui).not.toContain("KEYRO_STUDIO_ACTION_EXECUTOR");
   });
 
   test("ui has no direct bun, node, fs, pipe, or socket access", () => {

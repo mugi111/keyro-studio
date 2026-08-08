@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { StudioService } from "../src/application/studio-service";
+import { createActionExecutor, readActionExecutorMode } from "../src/infrastructure/main/action-executor-factory";
 import { createCoreAdapter, readCoreAdapterConfig } from "../src/infrastructure/main/core-adapter-factory";
 import { registerAppLifecycle } from "../src/infrastructure/main/app-lifecycle";
 import { MockActionExecutor } from "../src/infrastructure/main/mock-action-executor";
+import { OsOpenUrlExecutor } from "../src/infrastructure/main/os-open-url-executor";
 
 describe("core adapter factory", () => {
   test("defaults to mock mode", async () => {
@@ -11,6 +13,7 @@ describe("core adapter factory", () => {
     const snapshot = await service.getSnapshot();
 
     expect(config.mode).toBe("mock");
+    expect(config.actionExecutorMode).toBe("mock");
     expect(snapshot.ok).toBe(true);
     if (snapshot.ok) {
       expect(snapshot.value.profiles[0]?.name).toBe("Default");
@@ -22,12 +25,43 @@ describe("core adapter factory", () => {
     const service = new StudioService(createCoreAdapter(config));
 
     expect(config.mode).toBe("local-ipc");
+    expect(config.actionExecutorMode).toBe("mock");
     expect((await service.getConnectionStatus()).state).toBe("disconnected");
     expect((await service.createProfile("Nope")).ok).toBe(false);
   });
 
   test("ignores unknown modes to keep development usable", () => {
     expect(readCoreAdapterConfig({ KEYRO_STUDIO_CORE_MODE: "something-else" }).mode).toBe("mock");
+  });
+
+  test("reads action executor mode independently from core adapter mode", () => {
+    expect(readCoreAdapterConfig({ KEYRO_STUDIO_ACTION_EXECUTOR: "os-open-url" })).toEqual({
+      mode: "mock",
+      actionExecutorMode: "os-open-url"
+    });
+    expect(readCoreAdapterConfig({ KEYRO_STUDIO_ACTION_EXECUTOR: "anything-else" }).actionExecutorMode).toBe("mock");
+  });
+});
+
+describe("action executor factory", () => {
+  test("defaults to mock executor", () => {
+    expect(readActionExecutorMode({})).toBe("mock");
+    expect(createActionExecutor("mock")).toBeInstanceOf(MockActionExecutor);
+  });
+
+  test("creates the OS open URL executor only when explicitly selected", () => {
+    expect(readActionExecutorMode({ KEYRO_STUDIO_ACTION_EXECUTOR: "os-open-url" })).toBe("os-open-url");
+    expect(createActionExecutor("os-open-url", { openUrl: () => true })).toBeInstanceOf(OsOpenUrlExecutor);
+  });
+
+  test("OS executor mode is safe when an opener is not configured", async () => {
+    const executor = createActionExecutor("os-open-url");
+    const result = await executor.execute({ kind: "open_url", url: "https://example.com/" }, "Key 1");
+
+    expect(result.state).toBe("failure");
+    if (result.state === "failure") {
+      expect(result.message).toBe("The operating system could not open the URL.");
+    }
   });
 });
 
@@ -43,6 +77,62 @@ describe("mock action executor", () => {
     if (failure.state === "failure") {
       expect(failure.message).not.toContain("Error:");
       expect(failure.message).toContain("Mock action executor");
+    }
+  });
+});
+
+describe("OS open URL executor", () => {
+  test("opens only validated http and https URLs through the injected opener", async () => {
+    const opened: string[] = [];
+    const executor = new OsOpenUrlExecutor((url) => {
+      opened.push(url);
+      return true;
+    });
+
+    const result = await executor.execute({ kind: "open_url", url: "https://example.com/a b" }, "Key 1");
+
+    expect(result.state).toBe("success");
+    expect(opened).toEqual(["https://example.com/a%20b"]);
+  });
+
+  test("does not invoke opener for disallowed URL schemes", async () => {
+    let called = false;
+    const executor = new OsOpenUrlExecutor(() => {
+      called = true;
+      return true;
+    });
+
+    const result = await executor.execute({ kind: "open_url", url: "javascript:alert(1)" }, "Key 1");
+
+    expect(result.state).toBe("failure");
+    expect(called).toBe(false);
+    if (result.state === "failure") {
+      expect(result.message).toContain("Only http and https");
+    }
+  });
+
+  test("converts opener rejection to a safe failure message", async () => {
+    const executor = new OsOpenUrlExecutor(() => {
+      throw new Error("native stack detail");
+    });
+
+    const result = await executor.execute({ kind: "open_url", url: "https://example.com/" }, "Key 1");
+
+    expect(result.state).toBe("failure");
+    if (result.state === "failure") {
+      expect(result.message).toBe("The operating system could not open the URL.");
+      expect(result.message).not.toContain("native stack detail");
+    }
+  });
+
+  test("converts opener false return to a user-facing failure", async () => {
+    const executor = new OsOpenUrlExecutor(() => false);
+
+    const result = await executor.execute({ kind: "open_url", url: "https://example.com/" }, "Key 1");
+
+    expect(result.state).toBe("failure");
+    if (result.state === "failure") {
+      expect(result.message).toBe("The operating system did not accept the URL.");
     }
   });
 });
