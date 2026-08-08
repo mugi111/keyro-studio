@@ -56,4 +56,13 @@ describe("security guardrails", () => {
     expect(ui).not.toMatch(/from ["'][^"']*infrastructure\/main/);
     expect(ui).not.toMatch(/import\(["'][^"']*infrastructure\/main/);
   });
+
+  test("shared layer does not import upward or framework modules", () => {
+    const shared = readFilesUnder("src/shared", ".ts");
+    expect(shared).not.toMatch(/from ["'][^"']*\.\.\/domain/);
+    expect(shared).not.toMatch(/from ["'][^"']*\.\.\/application/);
+    expect(shared).not.toMatch(/from ["'][^"']*\.\.\/infrastructure/);
+    expect(shared).not.toMatch(/from ["']electrobun/);
+    expect(shared).not.toMatch(/import\(["']electrobun/);
+  });
 });

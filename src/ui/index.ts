@@ -1,5 +1,5 @@
 import { Electroview } from "electrobun/view";
-import type { StudioRPC } from "../shared/electrobun-rpc-contract";
+import type { StudioRPC } from "../infrastructure/rpc/electrobun-rpc-contract";
 import { mountStudio, type StudioAPI } from "./dom";
 
 const rpc = Electroview.defineRPC<StudioRPC>({
