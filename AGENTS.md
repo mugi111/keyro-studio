@@ -7,6 +7,69 @@ If custom agents are not available, treat the agent names below as human or
 single-agent working modes. Follow the same responsibilities, permissions, and
 handoff expectations manually.
 
+## Required Workflow
+
+For non-trivial implementation tasks, follow this workflow in order. A task is
+non-trivial when it changes runtime behavior, architecture, public contracts,
+security posture, persistence, build configuration, or more than one layer.
+
+Do not skip a phase just because the next step looks obvious. If a phase is not
+applicable, record why in the handoff.
+
+### 1. Architect Pass
+
+Use the `architect` custom agent when available. If custom agents are not
+available, perform this pass manually before editing files.
+
+- Read the relevant code, tests, configuration, and existing architecture notes.
+- Identify affected layers and confirm the dependency direction will remain:
+  `shared <- domain <- application <- infrastructure / ui`.
+- Write a short implementation plan covering approach, affected files, risks,
+  tests, and commit boundaries.
+- Do not modify files during this pass.
+- If the design is ambiguous or requires a product decision, stop and ask before
+  implementing.
+
+### 2. Implementer Pass
+
+Use the `implementer` custom agent when available. If custom agents are not
+available, treat this as a separate implementation phase after the architecture
+pass is complete.
+
+- Implement only the approved or clearly stated plan.
+- Keep changes focused to the task and preserve existing APIs unless the task
+  requires changing them.
+- Add or update tests at the closest layer to the behavior being changed.
+- Keep business rules out of Electrobun/UI-specific code.
+- Make commits at meaningful boundaries, such as foundation, domain/application,
+  adapter/RPC, UI, tests, or security.
+- Run the relevant verification commands before entering the review pass.
+
+### 3. Reviewer Pass
+
+Use the `reviewer` custom agent when available. If custom agents are not
+available, use a separate human reviewer when possible. If no separate reviewer
+is available, perform a distinct self-review after stepping away from the
+implementation context.
+
+- Review the final diff, not just the final files.
+- Check requirements, dependency direction, public contracts, security rules,
+  test coverage, maintainability, and regression risk.
+- Classify findings as `BLOCKER`, `MAJOR`, `MINOR`, or `NIT`.
+- Fix all `BLOCKER` and `MAJOR` findings before handoff.
+- If only `MINOR` or `NIT` findings remain, mention them in the handoff.
+
+### 4. Handoff
+
+Before final handoff, report:
+
+- Which workflow phases were completed and whether custom agents or manual
+  passes were used.
+- Changed files and a concise change summary.
+- Tests added or updated.
+- Verification commands and results.
+- Remaining risks or skipped phases, if any.
+
 ## Custom Agents
 
 ### Architect
