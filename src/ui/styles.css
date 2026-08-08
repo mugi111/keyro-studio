@@ -256,6 +256,7 @@ input {
 }
 
 .action-editor,
+.save-state,
 .run-state,
 .empty {
   margin-top: 16px;
@@ -286,6 +287,19 @@ input {
 
 .run-state.running {
   border-color: #b7791f;
+}
+
+.save-state.dirty,
+.save-state.saving {
+  border-color: #b7791f;
+}
+
+.save-state.saved {
+  border-color: #27875e;
+}
+
+.save-state.failed {
+  border-color: #bd3b3b;
 }
 
 .run-state.success {
