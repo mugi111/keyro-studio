@@ -4,7 +4,7 @@ import { createCoreAdapter, readCoreAdapterConfig } from "./core-adapter-factory
 import { registerAppLifecycle } from "./app-lifecycle";
 import { createStudioRPC } from "./rpc-handlers";
 
-const service = new StudioService(createCoreAdapter(readCoreAdapterConfig()));
+const service = new StudioService(createCoreAdapter(readCoreAdapterConfig(), { openUrl: (url) => Utils.openExternal(url) }));
 const rpc = createStudioRPC(service);
 
 ApplicationMenu.setApplicationMenu([

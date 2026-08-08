@@ -26,6 +26,8 @@ bun run dev
 
 Set `KEYRO_STUDIO_CORE_MODE=local-ipc` to exercise the future Core IPC adapter boundary. Until `keyro-protocol` is defined, that mode intentionally reports Core as unavailable. The default mode is `mock`.
 
+Set `KEYRO_STUDIO_ACTION_EXECUTOR=os-open-url` to execute validated `open_url` actions through the OS default browser. The default action executor is `mock`, so simulator clicks do not open browser windows unless explicitly enabled.
+
 ## Security Notes
 
 - The browser view loads bundled `views://` assets, not remote web content.

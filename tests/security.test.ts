@@ -38,8 +38,11 @@ describe("security guardrails", () => {
     const ui = readFileSync("src/ui/index.ts", "utf8") + readFileSync("src/ui/dom.ts", "utf8");
 
     expect(factory).toContain("KEYRO_STUDIO_CORE_MODE");
-    expect(factory).toContain("local-ipc");
+    expect(readFileSync("src/infrastructure/main/action-executor-factory.ts", "utf8")).toContain(
+      "KEYRO_STUDIO_ACTION_EXECUTOR"
+    );
     expect(ui).not.toContain("KEYRO_STUDIO_CORE_MODE");
+    expect(ui).not.toContain("KEYRO_STUDIO_ACTION_EXECUTOR");
   });
 
   test("ui has no direct bun, node, fs, pipe, or socket access", () => {
