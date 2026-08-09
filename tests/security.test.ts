@@ -2,16 +2,43 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-function readFilesUnder(directory: string, extension: string): string {
+type SourceFile = {
+  path: string;
+  content: string;
+};
+
+function sourceFilesUnder(directory: string, extension: string): SourceFile[] {
   return readdirSync(directory)
     .flatMap((entry) => {
       const path = join(directory, entry);
       if (statSync(path).isDirectory()) {
-        return readFilesUnder(path, extension);
+        return sourceFilesUnder(path, extension);
       }
-      return path.endsWith(extension) ? readFileSync(path, "utf8") : "";
-    })
+      return path.endsWith(extension) ? [{ path, content: readFileSync(path, "utf8") }] : [];
+    });
+}
+
+function readFilesUnder(directory: string, extension: string): string {
+  return sourceFilesUnder(directory, extension)
+    .map((file) => file.content)
     .join("\n");
+}
+
+function importedSpecifiersUnder(directory: string): Array<{ file: string; specifier: string }> {
+  const importPattern = /\bimport\s+(?:type\s+)?(?:[^'"]*?\s+from\s+)?["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)/g;
+  return sourceFilesUnder(directory, ".ts").flatMap((file) =>
+    Array.from(file.content.matchAll(importPattern), (match) => ({
+      file: file.path,
+      specifier: match[1] ?? match[2] ?? ""
+    }))
+  );
+}
+
+function expectNoImports(directory: string, blocked: RegExp[]): void {
+  const violations = importedSpecifiersUnder(directory).filter(({ specifier }) =>
+    blocked.some((pattern) => pattern.test(specifier))
+  );
+  expect(violations).toEqual([]);
 }
 
 describe("security guardrails", () => {
@@ -62,11 +89,22 @@ describe("security guardrails", () => {
   });
 
   test("shared layer does not import upward or framework modules", () => {
-    const shared = readFilesUnder("src/shared", ".ts");
-    expect(shared).not.toMatch(/from ["'][^"']*\.\.\/domain/);
-    expect(shared).not.toMatch(/from ["'][^"']*\.\.\/application/);
-    expect(shared).not.toMatch(/from ["'][^"']*\.\.\/infrastructure/);
-    expect(shared).not.toMatch(/from ["']electrobun/);
-    expect(shared).not.toMatch(/import\(["']electrobun/);
+    expectNoImports("src/shared", [
+      /\.\.\/domain/,
+      /\.\.\/application/,
+      /\.\.\/infrastructure/,
+      /\.\.\/ui/,
+      /^bun:/,
+      /^node:/,
+      /^electrobun/
+    ]);
+  });
+
+  test("domain layer stays pure and does not import upward or framework modules", () => {
+    expectNoImports("src/domain", [/\.\.\/application/, /\.\.\/infrastructure/, /\.\.\/ui/, /^bun:/, /^node:/, /^electrobun/]);
+  });
+
+  test("application layer depends only on ports, domain, and shared contracts", () => {
+    expectNoImports("src/application", [/\.\.\/infrastructure/, /\.\.\/ui/, /^bun:/, /^node:/, /^electrobun/]);
   });
 });
