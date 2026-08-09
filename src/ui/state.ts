@@ -59,7 +59,7 @@ export function reduceCoreEvent(state: UIState, event: CoreEvent): UIState {
     return {
       ...state,
       connection: event.status,
-      saveStatus: normalizeSaveStatusForConnection(state.saveStatus, event.status)
+      saveStatus: normalizeSaveStatusForConnection(state.saveStatus, event.status, state.actionDraft)
     };
   }
   if (event.type === "action") {
@@ -201,9 +201,19 @@ function sameEditTarget(left: ActionEditTarget, right: ActionEditTarget): boolea
   return false;
 }
 
-function normalizeSaveStatusForConnection(status: SaveStatus, connection: ConnectionStatus): SaveStatus {
-  if (connection.state === "connected" || status.state !== "dirty") return status;
-  return { state: "dirty", message: "Disconnected. Changes are not saved." };
+function normalizeSaveStatusForConnection(
+  status: SaveStatus,
+  connection: ConnectionStatus,
+  draft: ActionDraft | null
+): SaveStatus {
+  if (connection.state === "connected") {
+    if (draft && status.state === "failed") {
+      return { state: "dirty", message: "Reconnected. Changes are not saved yet." };
+    }
+    return status;
+  }
+  if (status.state !== "dirty" && !(draft && status.state === "failed")) return status;
+  return { state: status.state, message: "Disconnected. Changes are not saved." };
 }
 
 export function selectedProfile(state: UIState): Profile | null {

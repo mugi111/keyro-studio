@@ -63,20 +63,33 @@ describe("studio service with mock core", () => {
     expect(snapshot.value.profiles[0]!.pages[0]!.encoders).toHaveLength(3);
   });
 
-  test("does not claim saved state while disconnected", async () => {
+  test("saves the same page after a disconnected save fails and reconnects", async () => {
     const service = new StudioService(new MockCoreAdapter());
     const snapshot = await service.getSnapshot();
     expect(snapshot.ok).toBe(true);
     if (!snapshot.ok) return;
     const profile = snapshot.value.profiles[0]!;
+    const page = structuredClone(profile.pages[0]!);
+    const action = createOpenUrlAction("https://example.com/retry-after-reconnect");
+    expect(action.ok).toBe(true);
+    if (!action.ok) return;
+    page.keys[0]!.action = action.value;
 
     await service.simulateDisconnect();
-    const saved = await service.savePage(profile.id, profile.pages[0]!);
-    expect(saved.ok).toBe(false);
+    const failedSave = await service.savePage(profile.id, page);
+    expect(failedSave.ok).toBe(false);
 
     await service.simulateReconnect();
-    const recovered = await service.getSnapshot();
-    expect(recovered.ok).toBe(true);
+    const saved = await service.savePage(profile.id, page);
+    expect(saved.ok).toBe(true);
+
+    const reloaded = await service.getSnapshot();
+    expect(reloaded.ok).toBe(true);
+    if (reloaded.ok) {
+      expect(reloaded.value.profiles[0]!.pages[0]!.keys[0]!.action?.url).toBe(
+        "https://example.com/retry-after-reconnect"
+      );
+    }
   });
 
   test("reports open_url success and failure without stack traces", async () => {
