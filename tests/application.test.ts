@@ -144,7 +144,7 @@ describe("studio service with mock core", () => {
   });
 
   test("delegates assigned virtual inputs to the action executor", async () => {
-    const calls: Array<{ url: string; target: string }> = [];
+    const calls: Array<{ url: string; target: Parameters<ActionExecutorPort["execute"]>[1] }> = [];
     const executor: ActionExecutorPort = {
       execute: async (action, target) => {
         calls.push({ url: action.url, target });
@@ -165,7 +165,12 @@ describe("studio service with mock core", () => {
     const result = await service.sendVirtualInput({ type: "key", profileId: profile.id, pageIndex: 0, keyIndex: 0 });
 
     expect(result.ok).toBe(true);
-    expect(calls).toEqual([{ url: "https://example.com/delegated", target: "Page 1 Key 1" }]);
+    expect(calls).toEqual([
+      {
+        url: "https://example.com/delegated",
+        target: { type: "key", profileId: profile.id, pageIndex: 0, keyIndex: 0 }
+      }
+    ]);
   });
 
   test("does not invoke the action executor for unassigned controls", async () => {

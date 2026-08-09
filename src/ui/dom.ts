@@ -5,6 +5,7 @@ import { allowedOpenUrlSchemes } from "../shared/url";
 import { keyCount } from "../shared/device-layout";
 import type { VirtualInput } from "../application/ports/core-port";
 import {
+  actionStatusForTarget,
   canStartActionSave,
   canStartProfileOperation,
   canStartVirtualInput,
@@ -16,6 +17,7 @@ import {
   markProfileOperationSucceeded,
   markSaveFailed,
   markSaveStarted,
+  markVirtualInputFailed,
   markVirtualInputStarted,
   reduceCoreEvent,
   selectEncoderTarget,
@@ -131,12 +133,12 @@ function editorMarkup(state: UIState, profileId: string, page: PageConfig): stri
 
     <div class="device-area">
       <section class="key-grid" style="grid-template-columns: repeat(${layout.keyColumns}, minmax(96px, 1fr));">
-        ${page.keys.map((key) => keyMarkup(key)).join("")}
+        ${page.keys.map((key) => keyMarkup(state, key)).join("")}
       </section>
 
       <section class="encoder-panel">
         <h2>Encoders</h2>
-        ${page.encoders.map((encoder) => encoderMarkup(encoder)).join("")}
+        ${page.encoders.map((encoder) => encoderMarkup(state, encoder)).join("")}
       </section>
     </div>
 
@@ -156,32 +158,51 @@ function editorMarkup(state: UIState, profileId: string, page: PageConfig): stri
   `;
 }
 
-function keyMarkup(key: KeyBinding): string {
+function keyMarkup(state: UIState, key: KeyBinding): string {
   const label = key.action?.kind === "open_url" ? key.action.url : "Unassigned";
+  const status = actionStatusForTarget(state, {
+    type: "key",
+    pageIndex: state.selectedPageIndex,
+    keyIndex: key.index
+  });
   return `
-    <button class="key-tile" data-key="${key.index}">
+    <button class="key-tile ${targetStatusClass(status)}" data-key="${key.index}">
       <strong>K${key.index + 1}</strong>
       <span>${escapeHtml(label)}</span>
+      ${targetStatusBadge(status)}
     </button>
   `;
 }
 
-function encoderMarkup(encoder: EncoderBinding): string {
+function encoderMarkup(state: UIState, encoder: EncoderBinding): string {
   return `
     <div class="encoder" data-encoder="${encoder.index}">
       <div class="encoder-title">Encoder ${encoder.index + 1}</div>
-      ${encoderButton(encoder.index, "rotateLeft", "Left", encoder.rotateLeft?.url)}
-      ${encoderButton(encoder.index, "press", "Press", encoder.press?.url)}
-      ${encoderButton(encoder.index, "rotateRight", "Right", encoder.rotateRight?.url)}
+      ${encoderButton(state, encoder.index, "rotateLeft", "Left", encoder.rotateLeft?.url)}
+      ${encoderButton(state, encoder.index, "press", "Press", encoder.press?.url)}
+      ${encoderButton(state, encoder.index, "rotateRight", "Right", encoder.rotateRight?.url)}
     </div>
   `;
 }
 
-function encoderButton(index: number, control: string, label: string, url?: string): string {
+function encoderButton(
+  state: UIState,
+  index: number,
+  control: NonNullable<UIState["editingEncoderControl"]>,
+  label: string,
+  url?: string
+): string {
+  const status = actionStatusForTarget(state, {
+    type: "encoder",
+    pageIndex: state.selectedPageIndex,
+    encoderIndex: index,
+    control
+  });
   return `
-    <button data-encoder-control="${control}" data-encoder-index="${index}">
+    <button class="${targetStatusClass(status)}" data-encoder-control="${control}" data-encoder-index="${index}">
       <span>${label}</span>
       <small>${escapeHtml(url ?? "Unassigned")}</small>
+      ${targetStatusBadge(status)}
     </button>
   `;
 }
@@ -331,21 +352,26 @@ async function simulateCurrentInput(context: RenderContext) {
   if (!profile) return;
   context.state = markVirtualInputStarted(context.state);
   render(context);
+  let result: Result<UIState["actionStatus"]> | null = null;
   if (context.state.editingKeyIndex != null) {
-    await context.api.sendVirtualInput({
+    result = await context.api.sendVirtualInput({
       type: "key",
       profileId: profile.id,
       pageIndex: context.state.selectedPageIndex,
       keyIndex: context.state.editingKeyIndex
     });
   } else if (context.state.editingEncoderIndex != null && context.state.editingEncoderControl) {
-    await context.api.sendVirtualInput({
+    result = await context.api.sendVirtualInput({
       type: "encoder",
       profileId: profile.id,
       pageIndex: context.state.selectedPageIndex,
       encoderIndex: context.state.editingEncoderIndex,
       interaction: context.state.editingEncoderControl
     });
+  }
+  if (result && !result.ok) {
+    context.state = markVirtualInputFailed(context.state, result.error.message);
+    render(context);
   }
 }
 
@@ -392,8 +418,25 @@ function connectionText(status: UIState["connection"]): string {
 
 function actionStatusText(status: UIState["actionStatus"]): string {
   if (status.state === "idle") return "No action has run yet.";
-  if (status.state === "running") return `${status.target}: running`;
-  return `${status.target}: ${status.message}`;
+  if (status.state === "running") return `${actionTargetText(status.target)}: running`;
+  return `${actionTargetText(status.target)}: ${status.message}`;
+}
+
+function actionTargetText(target: NonNullable<Exclude<UIState["actionStatus"], { state: "idle" }>["target"]>): string {
+  if (target.type === "key") {
+    return `Page ${target.pageIndex + 1} Key ${target.keyIndex + 1}`;
+  }
+  return `Page ${target.pageIndex + 1} Encoder ${target.encoderIndex + 1} ${target.interaction}`;
+}
+
+function targetStatusClass(status: UIState["actionStatus"] | null): string {
+  return status && status.state !== "idle" ? `target-${status.state}` : "";
+}
+
+function targetStatusBadge(status: UIState["actionStatus"] | null): string {
+  if (!status || status.state === "idle") return `<em class="target-status empty" aria-hidden="true"></em>`;
+  const label = status.state === "running" ? "Running" : status.state === "success" ? "Success" : "Failed";
+  return `<em class="target-status">${label}</em>`;
 }
 
 function saveStatusText(state: UIState): string {

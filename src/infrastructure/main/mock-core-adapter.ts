@@ -9,7 +9,11 @@ import {
   type StudioSnapshot
 } from "../../domain/profile";
 import { StudioService } from "../../application/studio-service";
-import type { ActionExecutionStatus, ActionExecutorPort } from "../../application/ports/action-executor-port";
+import type {
+  ActionExecutionStatus,
+  ActionExecutionTarget,
+  ActionExecutorPort
+} from "../../application/ports/action-executor-port";
 import type {
   ConnectionStatus,
   CoreEvent,
@@ -134,7 +138,7 @@ export class MockCoreAdapter implements CorePort {
   async sendVirtualInput(input: VirtualInput): Promise<Result<ActionExecutionStatus>> {
     if (!this.isConnected()) return err("core_unavailable", "Core is disconnected.");
     const action = this.resolveAction(input);
-    const target = describeInput(input);
+    const target = actionExecutionTargetFromInput(input);
     this.emit({ type: "action", status: { state: "running", target } });
 
     if (!action) {
@@ -210,11 +214,22 @@ export class MockCoreAdapter implements CorePort {
   }
 }
 
-function describeInput(input: VirtualInput): string {
+function actionExecutionTargetFromInput(input: VirtualInput): ActionExecutionTarget {
   if (input.type === "key") {
-    return `Page ${input.pageIndex + 1} Key ${input.keyIndex + 1}`;
+    return {
+      type: "key",
+      profileId: input.profileId,
+      pageIndex: input.pageIndex,
+      keyIndex: input.keyIndex
+    };
   }
-  return `Page ${input.pageIndex + 1} Encoder ${input.encoderIndex + 1} ${input.interaction}`;
+  return {
+    type: "encoder",
+    profileId: input.profileId,
+    pageIndex: input.pageIndex,
+    encoderIndex: input.encoderIndex,
+    interaction: input.interaction
+  };
 }
 
 export function createMockStudioService(options?: MockCoreOptions): StudioService {

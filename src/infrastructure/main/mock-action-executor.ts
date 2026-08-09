@@ -1,8 +1,12 @@
-import type { ActionExecutorPort, ActionExecutionStatus } from "../../application/ports/action-executor-port";
+import type {
+  ActionExecutionStatus,
+  ActionExecutionTarget,
+  ActionExecutorPort
+} from "../../application/ports/action-executor-port";
 import type { Action } from "../../domain/action";
 
 export class MockActionExecutor implements ActionExecutorPort {
-  async execute(action: Action, target: string): Promise<ActionExecutionStatus> {
+  async execute(action: Action, target: ActionExecutionTarget): Promise<ActionExecutionStatus> {
     if (action.kind === "open_url" && action.url.includes("fail")) {
       return {
         state: "failure",
