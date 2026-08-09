@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { describeGridColumns } from "../src/ui/dom";
 import {
+  canStartActionSave,
+  canStartProfileOperation,
+  canStartVirtualInput,
   clearSaveDraft,
   draftUrlForCurrentTarget,
   initialUIState,
@@ -10,6 +13,7 @@ import {
   markProfileOperationSucceeded,
   markSaveFailed,
   markSaveStarted,
+  markVirtualInputStarted,
   reduceCoreEvent,
   selectKeyTarget
 } from "../src/ui/state";
@@ -122,5 +126,28 @@ describe("ui state", () => {
     expect(failed.saveStatus).toEqual({ state: "dirty", message: "Unsaved changes." });
     expect(succeeded.profileStatus).toEqual({ state: "success", message: "Profile renamed." });
     expect(succeeded.error).toBeNull();
+  });
+
+  test("blocks duplicate operations while each operation is running", () => {
+    const saving = markSaveStarted(initialUIState);
+    const profileWorking = markProfileOperationStarted(initialUIState, "Creating profile...");
+    const actionRunning = {
+      ...initialUIState,
+      actionStatus: { state: "running" as const, target: "Page 1 Key 1" }
+    };
+
+    expect(canStartActionSave(saving)).toBe(false);
+    expect(canStartActionSave(initialUIState)).toBe(true);
+    expect(canStartProfileOperation(profileWorking)).toBe(false);
+    expect(canStartProfileOperation(initialUIState)).toBe(true);
+    expect(canStartVirtualInput(actionRunning)).toBe(false);
+    expect(canStartVirtualInput(initialUIState)).toBe(true);
+  });
+
+  test("marks virtual input running before the Core event returns", () => {
+    const started = markVirtualInputStarted(selectKeyTarget(initialUIState, 0));
+
+    expect(started.actionStatus).toEqual({ state: "running", target: "Page 1 Key 1" });
+    expect(canStartVirtualInput(started)).toBe(false);
   });
 });

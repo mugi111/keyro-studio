@@ -142,6 +142,16 @@ export function markProfileOperationFailed(state: UIState, message: string): UIS
   };
 }
 
+export function markVirtualInputStarted(state: UIState): UIState {
+  const target = currentEditTarget(state);
+  if (!target) return state;
+  return {
+    ...state,
+    actionStatus: { state: "running", target: describeEditTarget(target) },
+    error: null
+  };
+}
+
 export function clearSaveDraft(state: UIState): UIState {
   return {
     ...state,
@@ -184,6 +194,18 @@ export function draftUrlForCurrentTarget(state: UIState): string | null {
   const target = currentEditTarget(state);
   if (!target || !state.actionDraft) return null;
   return sameEditTarget(target, state.actionDraft.target) ? state.actionDraft.url : null;
+}
+
+export function canStartActionSave(state: UIState): boolean {
+  return state.saveStatus.state !== "saving";
+}
+
+export function canStartProfileOperation(state: UIState): boolean {
+  return state.profileStatus.state !== "working";
+}
+
+export function canStartVirtualInput(state: UIState): boolean {
+  return state.actionStatus.state !== "running";
 }
 
 function clearEditingTarget(state: UIState): UIState {
@@ -231,6 +253,13 @@ function sameEditTarget(left: ActionEditTarget, right: ActionEditTarget): boolea
     return left.encoderIndex === right.encoderIndex && left.control === right.control;
   }
   return false;
+}
+
+function describeEditTarget(target: ActionEditTarget): string {
+  if (target.type === "key") {
+    return `Page ${target.pageIndex + 1} Key ${target.keyIndex + 1}`;
+  }
+  return `Page ${target.pageIndex + 1} Encoder ${target.encoderIndex + 1} ${target.control}`;
 }
 
 function normalizeSaveStatusForConnection(
