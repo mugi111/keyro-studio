@@ -73,6 +73,43 @@ describe("studio service with mock core", () => {
     }
   });
 
+  test("persists cleared key and encoder actions after reloading the snapshot", async () => {
+    const service = new StudioService(new MockCoreAdapter());
+    const snapshot = await service.getSnapshot();
+    expect(snapshot.ok).toBe(true);
+    if (!snapshot.ok) return;
+
+    const profile = snapshot.value.profiles[0]!;
+    const assignedPage = structuredClone(profile.pages[1]!);
+    const keyAction = createOpenUrlAction("https://example.com/key-action");
+    const encoderAction = createOpenUrlAction("https://example.com/encoder-action");
+    expect(keyAction.ok).toBe(true);
+    expect(encoderAction.ok).toBe(true);
+    if (!keyAction.ok || !encoderAction.ok) return;
+
+    assignedPage.keys[0]!.action = keyAction.value;
+    assignedPage.encoders[0]!.rotateRight = encoderAction.value;
+    const assigned = await service.savePage(profile.id, assignedPage);
+    expect(assigned.ok).toBe(true);
+
+    const clearedPage = structuredClone(assignedPage);
+    clearedPage.keys[0]!.action = null;
+    clearedPage.encoders[0]!.rotateRight = null;
+    const saved = await service.savePage(profile.id, clearedPage);
+    expect(saved.ok).toBe(true);
+    if (saved.ok) {
+      expect(saved.value.profiles[0]!.pages[1]!.keys[0]!.action).toBeNull();
+      expect(saved.value.profiles[0]!.pages[1]!.encoders[0]!.rotateRight).toBeNull();
+    }
+
+    const reloaded = await service.getSnapshot();
+    expect(reloaded.ok).toBe(true);
+    if (reloaded.ok) {
+      expect(reloaded.value.profiles[0]!.pages[1]!.keys[0]!.action).toBeNull();
+      expect(reloaded.value.profiles[0]!.pages[1]!.encoders[0]!.rotateRight).toBeNull();
+    }
+  });
+
   test("handles variable layouts", async () => {
     const service = new StudioService(
       new MockCoreAdapter({ layout: { pageCount: 3, keyRows: 2, keyColumns: 2, encoderCount: 3 } })
