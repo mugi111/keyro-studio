@@ -5,6 +5,9 @@ import { allowedOpenUrlSchemes } from "../shared/url";
 import { keyCount } from "../shared/device-layout";
 import type { VirtualInput } from "../application/ports/core-port";
 import {
+  canStartActionSave,
+  canStartProfileOperation,
+  canStartVirtualInput,
   initialUIState,
   draftUrlForCurrentTarget,
   markActionDraftChanged,
@@ -13,6 +16,7 @@ import {
   markProfileOperationSucceeded,
   markSaveFailed,
   markSaveStarted,
+  markVirtualInputStarted,
   reduceCoreEvent,
   selectEncoderTarget,
   selectKeyTarget,
@@ -87,10 +91,10 @@ function render(context: RenderContext) {
       <aside class="profiles">
         <div class="section-header">
           <h2>Profiles</h2>
-          <button data-action="create-profile" title="Create profile">+</button>
+          <button data-action="create-profile" title="Create profile" ${canStartProfileOperation(state) ? "" : "disabled"}>+</button>
         </div>
         <div class="profile-list">
-          ${state.snapshot?.profiles.map((item) => profileButton(item.id, item.name, item.active, item.id === state.selectedProfileId)).join("") ?? ""}
+          ${state.snapshot?.profiles.map((item) => profileButton(item.id, item.name, item.active, item.id === state.selectedProfileId, canStartProfileOperation(state))).join("") ?? ""}
         </div>
         <div class="profile-state ${state.profileStatus.state}">
           ${profileStatusText(state)}
@@ -116,7 +120,7 @@ function editorMarkup(state: UIState, profileId: string, page: PageConfig): stri
     <div class="editor-header">
       <label>
         <span>Profile name</span>
-        <input data-field="profile-name" value="${escapeHtml(selectedProfile(state)?.name ?? "")}" />
+        <input data-field="profile-name" value="${escapeHtml(selectedProfile(state)?.name ?? "")}" ${canStartProfileOperation(state) ? "" : "disabled"} />
       </label>
       <div class="pages" role="tablist">
         ${Array.from({ length: layout.pageCount }, (_, index) => `
@@ -204,9 +208,9 @@ function actionEditorMarkup(state: UIState, page: PageConfig): string {
       <input data-field="action-url" placeholder="https://example.com" value="${escapeHtml(draftUrl)}" />
     </label>
     <div class="editor-actions">
-      <button data-action="save-action">Save</button>
-      <button data-action="clear-action">Clear</button>
-      <button data-action="simulate-input">Run virtual input</button>
+      <button data-action="save-action" ${canStartActionSave(state) ? "" : "disabled"}>Save</button>
+      <button data-action="clear-action" ${canStartActionSave(state) ? "" : "disabled"}>Clear</button>
+      <button data-action="simulate-input" ${canStartVirtualInput(state) ? "" : "disabled"}>Run virtual input</button>
     </div>
     <p class="hint">Allowed schemes: ${allowedOpenUrlSchemes().join(", ")}</p>
   `;
@@ -214,6 +218,7 @@ function actionEditorMarkup(state: UIState, page: PageConfig): string {
 
 function bindEvents(context: RenderContext) {
   context.root.querySelector("[data-action='create-profile']")?.addEventListener("click", async () => {
+    if (!canStartProfileOperation(context.state)) return;
     const name = window.prompt("Profile name", "New Profile") ?? "";
     if (!name.trim()) return;
     context.state = markProfileOperationStarted(context.state, "Creating profile...");
@@ -223,6 +228,7 @@ function bindEvents(context: RenderContext) {
 
   context.root.querySelectorAll<HTMLElement>("[data-profile]").forEach((node) => {
     node.addEventListener("click", async () => {
+      if (!canStartProfileOperation(context.state)) return;
       context.state = markProfileOperationStarted(context.state, "Activating profile...");
       render(context);
       await applyProfileSnapshot(context, context.api.activateProfile(node.dataset.profile!), "Profile activated.");
@@ -230,6 +236,7 @@ function bindEvents(context: RenderContext) {
   });
 
   context.root.querySelector("[data-field='profile-name']")?.addEventListener("change", async (event) => {
+    if (!canStartProfileOperation(context.state)) return;
     const profileId = context.state.selectedProfileId;
     if (!profileId) return;
     context.state = markProfileOperationStarted(context.state, "Renaming profile...");
@@ -291,6 +298,7 @@ function bindEvents(context: RenderContext) {
 }
 
 async function saveCurrentAction(context: RenderContext, clear: boolean) {
+  if (!canStartActionSave(context.state)) return;
   const page = selectedPage(context.state);
   const profile = selectedProfile(context.state);
   if (!page || !profile) return;
@@ -318,8 +326,11 @@ async function saveCurrentAction(context: RenderContext, clear: boolean) {
 }
 
 async function simulateCurrentInput(context: RenderContext) {
+  if (!canStartVirtualInput(context.state)) return;
   const profile = selectedProfile(context.state);
   if (!profile) return;
+  context.state = markVirtualInputStarted(context.state);
+  render(context);
   if (context.state.editingKeyIndex != null) {
     await context.api.sendVirtualInput({
       type: "key",
@@ -365,8 +376,8 @@ async function applyProfileSnapshot(
   render(context);
 }
 
-function profileButton(id: string, name: string, active: boolean, selected: boolean): string {
-  return `<button data-profile="${id}" class="${selected ? "selected" : ""}">${escapeHtml(name)}${active ? "<span>Active</span>" : ""}</button>`;
+function profileButton(id: string, name: string, active: boolean, selected: boolean, enabled: boolean): string {
+  return `<button data-profile="${id}" class="${selected ? "selected" : ""}" ${enabled ? "" : "disabled"}>${escapeHtml(name)}${active ? "<span>Active</span>" : ""}</button>`;
 }
 
 function emptyMarkup(error: string | null): string {

@@ -31,6 +31,12 @@ button:hover {
   border-color: #52748f;
 }
 
+button:disabled,
+input:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
 .app-shell {
   min-height: 100vh;
   display: grid;
