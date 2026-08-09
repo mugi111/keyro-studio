@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import {
+  studioNavigationRules,
+  studioViewUrl,
+  studioWindowSecurityPolicy
+} from "../src/infrastructure/main/window-policy";
 import { importSpecifiersFromSource } from "./helpers/import-specifiers";
 
 type SourceFile = {
@@ -50,8 +55,13 @@ describe("security guardrails", () => {
 
   test("main window loads local views only and avoids tray/background features", () => {
     const main = readFileSync("src/infrastructure/main/index.ts", "utf8");
-    expect(main).toContain("views://studio/index.html");
+    expect(studioViewUrl).toBe("views://studio/index.html");
+    expect(studioNavigationRules).toEqual(["views://studio/*"]);
+    expect(studioWindowSecurityPolicy.sandbox).toBe(false);
+    expect(studioWindowSecurityPolicy.reason).toContain("typed Bun RPC bridge");
+    expect(main).toContain("studioViewUrl");
     expect(main).toContain("setNavigationRules");
+    expect(main).toContain("studioWindowSecurityPolicy.sandbox");
     expect(main).toContain("registerAppLifecycle");
     expect(main).not.toContain("Tray");
     expect(main).not.toContain("sqlite");

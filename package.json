@@ -7,7 +7,7 @@
     "start": "electrobun dev",
     "dev": "electrobun dev",
     "build": "electrobun build",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "bun --bun tsc --noEmit",
     "test": "bun test",
     "check": "bun run typecheck && bun test"
   },
