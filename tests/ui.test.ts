@@ -20,6 +20,7 @@ import {
   selectKeyTarget
 } from "../src/ui/state";
 import { createEmptyProfile } from "../src/domain/profile";
+import { profileNameSubmission, profileRenameIntent, type ProfileRenameIntent } from "../src/ui/profile-name";
 
 describe("ui state", () => {
   const keyTarget = { type: "key" as const, profileId: "p1", pageIndex: 0, keyIndex: 1 };
@@ -137,6 +138,44 @@ describe("ui state", () => {
     expect(failed.saveStatus).toEqual({ state: "dirty", message: "Unsaved changes." });
     expect(succeeded.profileStatus).toEqual({ state: "success", message: "Profile renamed." });
     expect(succeeded.error).toBeNull();
+  });
+
+  test("normalizes creatable profile names and rejects blank input", () => {
+    expect(profileNameSubmission("  Focus   Mode  ")).toEqual({ kind: "submit", normalizedName: "Focus Mode" });
+    expect(profileNameSubmission("   ")).toEqual({ kind: "invalid", message: "Profile name is required." });
+  });
+
+  test("classifies profile rename input before calling RPC", () => {
+    expect(profileRenameIntent("Focus Mode", "  Focus   Mode  ")).toEqual({
+      kind: "unchanged",
+      normalizedName: "Focus Mode",
+      message: "Profile name unchanged."
+    });
+    expect(profileRenameIntent("Focus Mode", "  Studio   Mode  ")).toEqual({
+      kind: "submit",
+      normalizedName: "Studio Mode"
+    });
+    expect(profileRenameIntent("Focus Mode", "   ")).toEqual({
+      kind: "invalid",
+      message: "Profile name is required."
+    });
+    expect(profileRenameIntent(null, "Studio Mode")).toEqual({
+      kind: "invalid",
+      message: "No profile is selected."
+    });
+  });
+
+  test("submits renames only when the normalized name changes", () => {
+    const submitted: string[] = [];
+    const submitRename = (intent: ProfileRenameIntent) => {
+      if (intent.kind === "submit") submitted.push(intent.normalizedName);
+    };
+
+    submitRename(profileRenameIntent("Focus Mode", "  Focus   Mode  "));
+    submitRename(profileRenameIntent("Focus Mode", "   "));
+    submitRename(profileRenameIntent("Focus Mode", "Studio Mode"));
+
+    expect(submitted).toEqual(["Studio Mode"]);
   });
 
   test("blocks duplicate operations while each operation is running", () => {
