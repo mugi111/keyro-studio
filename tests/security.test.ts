@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { importSpecifiersFromSource } from "./helpers/import-specifiers";
 
 type SourceFile = {
   path: string;
@@ -25,12 +26,8 @@ function readFilesUnder(directory: string, extension: string): string {
 }
 
 function importedSpecifiersUnder(directory: string): Array<{ file: string; specifier: string }> {
-  const importPattern = /\bimport\s+(?:type\s+)?(?:[^'"]*?\s+from\s+)?["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["']\s*\)/g;
   return sourceFilesUnder(directory, ".ts").flatMap((file) =>
-    Array.from(file.content.matchAll(importPattern), (match) => ({
-      file: file.path,
-      specifier: match[1] ?? match[2] ?? ""
-    }))
+    importSpecifiersFromSource(file.path, file.content)
   );
 }
 
