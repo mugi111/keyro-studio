@@ -28,6 +28,7 @@ import {
   type UIState
 } from "./state";
 import type { CoreEvent } from "../application/ports/core-port";
+import { profileNameSubmission, profileRenameIntent } from "./profile-name";
 
 export type StudioAPI = {
   getConnectionStatus(): Promise<UIState["connection"]>;
@@ -240,11 +241,17 @@ function actionEditorMarkup(state: UIState, page: PageConfig): string {
 function bindEvents(context: RenderContext) {
   context.root.querySelector("[data-action='create-profile']")?.addEventListener("click", async () => {
     if (!canStartProfileOperation(context.state)) return;
-    const name = window.prompt("Profile name", "New Profile") ?? "";
-    if (!name.trim()) return;
+    const name = window.prompt("Profile name", "New Profile");
+    if (name === null) return;
+    const submission = profileNameSubmission(name);
+    if (submission.kind === "invalid") {
+      context.state = markProfileOperationFailed(context.state, submission.message);
+      render(context);
+      return;
+    }
     context.state = markProfileOperationStarted(context.state, "Creating profile...");
     render(context);
-    await applyProfileSnapshot(context, context.api.createProfile(name), "Profile created.");
+    await applyProfileSnapshot(context, context.api.createProfile(submission.normalizedName), "Profile created.");
   });
 
   context.root.querySelectorAll<HTMLElement>("[data-profile]").forEach((node) => {
@@ -260,11 +267,22 @@ function bindEvents(context: RenderContext) {
     if (!canStartProfileOperation(context.state)) return;
     const profileId = context.state.selectedProfileId;
     if (!profileId) return;
+    const intent = profileRenameIntent(selectedProfile(context.state)?.name ?? null, (event.target as HTMLInputElement).value);
+    if (intent.kind === "invalid") {
+      context.state = markProfileOperationFailed(context.state, intent.message);
+      render(context);
+      return;
+    }
+    if (intent.kind === "unchanged") {
+      context.state = markProfileOperationSucceeded(context.state, intent.message);
+      render(context);
+      return;
+    }
     context.state = markProfileOperationStarted(context.state, "Renaming profile...");
     render(context);
     await applyProfileSnapshot(
       context,
-      context.api.renameProfile(profileId, (event.target as HTMLInputElement).value),
+      context.api.renameProfile(profileId, intent.normalizedName),
       "Profile renamed."
     );
   });

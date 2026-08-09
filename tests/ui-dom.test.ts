@@ -9,10 +9,16 @@ import { flushMicrotasks, TestDomElement, TestDomRoot } from "./helpers/test-dom
 
 class FakeStudioApi implements StudioAPI {
   readonly savedPages: PageConfig[] = [];
+  readonly createdProfiles: string[] = [];
+  readonly renamedProfiles: Array<{ profileId: string; name: string }> = [];
+  readonly activatedProfiles: string[] = [];
   readyCalls = 0;
+  private nextProfileNumber: number;
   private listener: ((event: CoreEvent) => void) | null = null;
 
-  constructor(private snapshot: StudioSnapshot) {}
+  constructor(private snapshot: StudioSnapshot) {
+    this.nextProfileNumber = snapshot.profiles.length + 1;
+  }
 
   async getConnectionStatus(): Promise<ConnectionStatus> {
     return { state: "connected" };
@@ -22,15 +28,32 @@ class FakeStudioApi implements StudioAPI {
     return ok(structuredClone(this.snapshot));
   }
 
-  async createProfile(): Promise<Result<StudioSnapshot>> {
+  async createProfile(name: string): Promise<Result<StudioSnapshot>> {
+    this.createdProfiles.push(name);
+    const profile = createEmptyProfile(`profile-${this.nextProfileNumber++}`, name, this.snapshot.layout);
+    this.snapshot = {
+      ...this.snapshot,
+      profiles: [...this.snapshot.profiles, profile]
+    };
     return ok(structuredClone(this.snapshot));
   }
 
-  async renameProfile(): Promise<Result<StudioSnapshot>> {
+  async renameProfile(profileId: string, name: string): Promise<Result<StudioSnapshot>> {
+    this.renamedProfiles.push({ profileId, name });
+    this.snapshot = {
+      ...this.snapshot,
+      profiles: this.snapshot.profiles.map((profile) => (profile.id === profileId ? { ...profile, name } : profile))
+    };
     return ok(structuredClone(this.snapshot));
   }
 
-  async activateProfile(): Promise<Result<StudioSnapshot>> {
+  async activateProfile(profileId: string): Promise<Result<StudioSnapshot>> {
+    this.activatedProfiles.push(profileId);
+    this.snapshot = {
+      ...this.snapshot,
+      activeProfileId: profileId,
+      profiles: this.snapshot.profiles.map((profile) => ({ ...profile, active: profile.id === profileId }))
+    };
     return ok(structuredClone(this.snapshot));
   }
 
@@ -120,10 +143,94 @@ describe("DOM UI integration", () => {
     });
     expect(root.innerHTML).toContain("Opened URL.");
   });
+
+  test("creates profiles with normalized names and rejects blank prompts before RPC", async () => {
+    const layout = { pageCount: 1, keyRows: 1, keyColumns: 1, encoderCount: 1 };
+    const profile = createEmptyProfile("profile-1", "Default", layout, true);
+    const api = new FakeStudioApi({ layout, profiles: [profile], activeProfileId: profile.id });
+    const root = new TestDomRoot();
+    const restorePrompt = stubPrompt(["  Focus   Mode  ", null, "   "]);
+
+    try {
+      mountStudio(root as unknown as HTMLElement, api);
+      await flushMicrotasks();
+
+      await element(root, "[data-action='create-profile']").click();
+      expect(api.createdProfiles).toEqual(["Focus Mode"]);
+      expect(root.innerHTML).toContain("Focus Mode");
+      expect(root.innerHTML).toContain("Profile created.");
+
+      await element(root, "[data-action='create-profile']").click();
+      expect(api.createdProfiles).toEqual(["Focus Mode"]);
+      expect(root.innerHTML).not.toContain("Profile name is required.");
+
+      await element(root, "[data-action='create-profile']").click();
+      expect(api.createdProfiles).toEqual(["Focus Mode"]);
+      expect(root.innerHTML).toContain("Profile name is required.");
+    } finally {
+      restorePrompt();
+    }
+  });
+
+  test("skips unchanged profile renames and normalizes changed names before RPC", async () => {
+    const layout = { pageCount: 1, keyRows: 1, keyColumns: 1, encoderCount: 1 };
+    const profile = createEmptyProfile("profile-1", "Default", layout, true);
+    const api = new FakeStudioApi({ layout, profiles: [profile], activeProfileId: profile.id });
+    const root = new TestDomRoot();
+
+    mountStudio(root as unknown as HTMLElement, api);
+    await flushMicrotasks();
+
+    await element(root, "[data-field='profile-name']").change(" Default ");
+    expect(api.renamedProfiles).toEqual([]);
+    expect(root.innerHTML).toContain("Profile name unchanged.");
+
+    await element(root, "[data-field='profile-name']").change("   ");
+    expect(api.renamedProfiles).toEqual([]);
+    expect(root.innerHTML).toContain("Profile name is required.");
+
+    await element(root, "[data-field='profile-name']").change(" Deep   Work ");
+    expect(api.renamedProfiles).toEqual([{ profileId: profile.id, name: "Deep Work" }]);
+    expect(root.querySelector("[data-field='profile-name']")?.value).toBe("Deep Work");
+    expect(root.innerHTML).toContain("Profile renamed.");
+  });
+
+  test("activates a profile from the profile list", async () => {
+    const layout = { pageCount: 1, keyRows: 1, keyColumns: 1, encoderCount: 1 };
+    const defaultProfile = createEmptyProfile("profile-1", "Default", layout, true);
+    const secondProfile = createEmptyProfile("profile-2", "Second", layout);
+    const api = new FakeStudioApi({
+      layout,
+      profiles: [defaultProfile, secondProfile],
+      activeProfileId: defaultProfile.id
+    });
+    const root = new TestDomRoot();
+
+    mountStudio(root as unknown as HTMLElement, api);
+    await flushMicrotasks();
+
+    await element(root, "[data-profile='profile-2']").click();
+
+    expect(api.activatedProfiles).toEqual(["profile-2"]);
+    expect(root.innerHTML).toContain("Profile activated.");
+    expect(root.innerHTML).toContain('data-profile="profile-2" class="" >Second<span>Active</span>');
+  });
 });
 
 function element(root: TestDomRoot, selector: string): TestDomElement {
   const result = root.querySelector(selector);
   if (!result) throw new Error(`Expected element for ${selector}`);
   return result;
+}
+
+function stubPrompt(values: Array<string | null>): () => void {
+  let index = 0;
+  const target = globalThis as unknown as { window?: { prompt?: () => string | null } };
+  const previousWindow = target.window;
+  target.window = {
+    prompt: () => values[index++] ?? null
+  };
+  return () => {
+    target.window = previousWindow;
+  };
 }
