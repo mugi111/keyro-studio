@@ -68,11 +68,10 @@ class FakeStudioApi implements StudioAPI {
   async sendVirtualInput(input: Parameters<StudioAPI["sendVirtualInput"]>[0]): Promise<Result<ActionExecutionStatus>> {
     this.virtualInputs.push(input);
     const action = this.resolveAction(input);
-    const status: ActionExecutionStatus = {
-      state: action?.url.includes("fail") ? "failure" : "success",
-      target: actionTargetFromInput(input),
-      message: action?.url.includes("fail") ? "Action failed." : "Opened URL."
-    };
+    const target = actionTargetFromInput(input);
+    const status: ActionExecutionStatus = action?.url.includes("fail")
+      ? { state: "failure", target, code: "open_url_failed", message: "Action failed." }
+      : { state: "success", target, message: "Opened URL." };
     this.emit({ type: "action", status });
     return ok(status);
   }

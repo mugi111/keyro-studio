@@ -215,6 +215,7 @@ describe("ui state", () => {
     expect(failed.actionStatus).toEqual({
       state: "failure",
       target: { type: "key", profileId: "p1", pageIndex: 0, keyIndex: 0 },
+      code: "internal",
       message: "Core is disconnected."
     });
     expect(canStartVirtualInput(failed)).toBe(true);
@@ -241,6 +242,7 @@ describe("ui state", () => {
       actionStatus: {
         state: "failure" as const,
         target: encoderTarget,
+        code: "open_url_failed" as const,
         message: "Action failed."
       }
     };

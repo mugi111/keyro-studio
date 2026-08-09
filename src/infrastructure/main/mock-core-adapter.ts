@@ -145,6 +145,7 @@ export class MockCoreAdapter implements CorePort {
       const status: ActionExecutionStatus = {
         state: "failure",
         target,
+        code: "no_action_assigned",
         message: "No action is assigned to this control."
       };
       this.emit({ type: "action", status });
@@ -158,6 +159,7 @@ export class MockCoreAdapter implements CorePort {
       status = {
         state: "failure",
         target,
+        code: "internal",
         message: "Action execution failed. Check the action settings and try again."
       };
     }

@@ -11,6 +11,7 @@ export class MockActionExecutor implements ActionExecutorPort {
       return {
         state: "failure",
         target,
+        code: "open_url_failed",
         message: "Mock action executor refused this URL. Remove 'fail' from the URL and try again."
       };
     }
