@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { PageConfig, StudioSnapshot } from "../src/domain/profile";
 import { createEmptyProfile } from "../src/domain/profile";
-import type { ActionExecutionStatus } from "../src/application/ports/action-executor-port";
+import type { ActionExecutionStatus, ActionExecutionTarget } from "../src/application/ports/action-executor-port";
 import type { ConnectionStatus, CoreEvent } from "../src/application/ports/core-port";
 import { mountStudio, type StudioAPI } from "../src/ui/dom";
 import { ok, type Result } from "../src/shared/result";
@@ -12,6 +12,7 @@ class FakeStudioApi implements StudioAPI {
   readonly createdProfiles: string[] = [];
   readonly renamedProfiles: Array<{ profileId: string; name: string }> = [];
   readonly activatedProfiles: string[] = [];
+  readonly virtualInputs: Array<Parameters<StudioAPI["sendVirtualInput"]>[0]> = [];
   readyCalls = 0;
   private nextProfileNumber: number;
   private listener: ((event: CoreEvent) => void) | null = null;
@@ -64,16 +65,30 @@ class FakeStudioApi implements StudioAPI {
     return ok(structuredClone(this.snapshot));
   }
 
-  async sendVirtualInput(): Promise<Result<ActionExecutionStatus>> {
-    return ok({ state: "idle" });
+  async sendVirtualInput(input: Parameters<StudioAPI["sendVirtualInput"]>[0]): Promise<Result<ActionExecutionStatus>> {
+    this.virtualInputs.push(input);
+    const action = this.resolveAction(input);
+    const status: ActionExecutionStatus = {
+      state: action?.url.includes("fail") ? "failure" : "success",
+      target: actionTargetFromInput(input),
+      message: action?.url.includes("fail") ? "Action failed." : "Opened URL."
+    };
+    this.emit({ type: "action", status });
+    return ok(status);
   }
 
   async simulateDisconnect(): Promise<ConnectionStatus> {
-    return { state: "disconnected", reason: "Test disconnect" };
+    const status: ConnectionStatus = { state: "disconnected", reason: "Test disconnect" };
+    this.emit({ type: "connection", status });
+    return status;
   }
 
   async simulateReconnect(): Promise<ConnectionStatus> {
-    return { state: "connected" };
+    const reconnecting: ConnectionStatus = { state: "reconnecting", reason: "Test reconnect" };
+    this.emit({ type: "connection", status: reconnecting });
+    const connected: ConnectionStatus = { state: "connected" };
+    this.emit({ type: "connection", status: connected });
+    return connected;
   }
 
   onCoreEvent(listener: (event: CoreEvent) => void): void {
@@ -86,6 +101,13 @@ class FakeStudioApi implements StudioAPI {
 
   emit(event: CoreEvent): void {
     this.listener?.(event);
+  }
+
+  private resolveAction(input: Parameters<StudioAPI["sendVirtualInput"]>[0]) {
+    const profile = this.snapshot.profiles.find((item) => item.id === input.profileId);
+    const page = profile?.pages[input.pageIndex];
+    if (input.type === "key") return page?.keys[input.keyIndex]?.action;
+    return page?.encoders[input.encoderIndex]?.[input.interaction] ?? null;
   }
 }
 
@@ -142,6 +164,74 @@ describe("DOM UI integration", () => {
       }
     });
     expect(root.innerHTML).toContain("Opened URL.");
+  });
+
+  test("sends virtual key input and renders action execution status", async () => {
+    const layout = { pageCount: 1, keyRows: 1, keyColumns: 1, encoderCount: 1 };
+    const profile = createEmptyProfile("profile-1", "Default", layout, true);
+    profile.pages[0]!.keys[0]!.action = { kind: "open_url", url: "https://example.com/" };
+    const api = new FakeStudioApi({ layout, profiles: [profile], activeProfileId: profile.id });
+    const root = new TestDomRoot();
+
+    mountStudio(root as unknown as HTMLElement, api);
+    await flushMicrotasks();
+
+    await element(root, "[data-key='0']").click();
+    await element(root, "[data-action='simulate-input']").click();
+    await flushMicrotasks();
+
+    expect(api.virtualInputs).toEqual([{ type: "key", profileId: profile.id, pageIndex: 0, keyIndex: 0 }]);
+    expect(root.innerHTML).toContain("Page 1 Key 1: Opened URL.");
+    expect(root.innerHTML).toContain("target-success");
+  });
+
+  test("renders virtual input failures on the target control", async () => {
+    const layout = { pageCount: 1, keyRows: 1, keyColumns: 1, encoderCount: 1 };
+    const profile = createEmptyProfile("profile-1", "Default", layout, true);
+    profile.pages[0]!.keys[0]!.action = { kind: "open_url", url: "https://fail.example.com/" };
+    const api = new FakeStudioApi({ layout, profiles: [profile], activeProfileId: profile.id });
+    const root = new TestDomRoot();
+
+    mountStudio(root as unknown as HTMLElement, api);
+    await flushMicrotasks();
+
+    await element(root, "[data-key='0']").click();
+    await element(root, "[data-action='simulate-input']").click();
+    await flushMicrotasks();
+
+    expect(api.virtualInputs).toEqual([{ type: "key", profileId: profile.id, pageIndex: 0, keyIndex: 0 }]);
+    expect(root.innerHTML).toContain("Page 1 Key 1: Action failed.");
+    expect(root.innerHTML).toContain("target-failure");
+  });
+
+  test("sends virtual encoder input and renders reconnect state transitions", async () => {
+    const layout = { pageCount: 1, keyRows: 1, keyColumns: 1, encoderCount: 1 };
+    const profile = createEmptyProfile("profile-1", "Default", layout, true);
+    profile.pages[0]!.encoders[0]!.rotateRight = { kind: "open_url", url: "https://example.com/encoder" };
+    const api = new FakeStudioApi({ layout, profiles: [profile], activeProfileId: profile.id });
+    const root = new TestDomRoot();
+
+    mountStudio(root as unknown as HTMLElement, api);
+    await flushMicrotasks();
+
+    await element(root, "[data-encoder-control='rotateRight']").click();
+    await element(root, "[data-action='simulate-input']").click();
+    await flushMicrotasks();
+
+    expect(api.virtualInputs).toEqual([
+      { type: "encoder", profileId: profile.id, pageIndex: 0, encoderIndex: 0, interaction: "rotateRight" }
+    ]);
+    expect(root.innerHTML).toContain("Page 1 Encoder 1 rotateRight: Opened URL.");
+
+    await element(root, "[data-action='disconnect']").click();
+    expect(root.innerHTML).toContain("disconnected: Test disconnect");
+    expect(root.innerHTML).toContain("Disconnected. Edits cannot be saved until Core reconnects.");
+
+    api.emit({ type: "connection", status: { state: "reconnecting", reason: "Manual reconnect check" } });
+    expect(root.innerHTML).toContain("reconnecting: Manual reconnect check");
+
+    api.emit({ type: "connection", status: { state: "connected" } });
+    expect(root.innerHTML).toContain("connected");
   });
 
   test("creates profiles with normalized names and rejects blank prompts before RPC", async () => {
@@ -232,5 +322,18 @@ function stubPrompt(values: Array<string | null>): () => void {
   };
   return () => {
     target.window = previousWindow;
+  };
+}
+
+function actionTargetFromInput(input: Parameters<StudioAPI["sendVirtualInput"]>[0]): ActionExecutionTarget {
+  if (input.type === "key") {
+    return { type: "key", profileId: input.profileId, pageIndex: input.pageIndex, keyIndex: input.keyIndex };
+  }
+  return {
+    type: "encoder",
+    profileId: input.profileId,
+    pageIndex: input.pageIndex,
+    encoderIndex: input.encoderIndex,
+    interaction: input.interaction
   };
 }
