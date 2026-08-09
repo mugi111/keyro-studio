@@ -1,6 +1,6 @@
 # Keyro Studio Agent Guide
 
-This repository uses project-local Codex custom agents in `.codex/agents`.
+This repository uses global Codex custom agents in `~/.codex/agents`.
 Choose the smallest agent workflow that fits the task.
 
 If custom agents are not available, treat the agent names below as human or
@@ -12,11 +12,28 @@ handoff expectations manually.
 For non-trivial implementation tasks, follow this workflow in order. A task is
 non-trivial when it changes runtime behavior, architecture, public contracts,
 security posture, persistence, build configuration, or more than one layer.
+When a task might be non-trivial, run the Orchestrator Pass first to classify
+and route the work before deciding which later phases are needed.
 
 Do not skip a phase just because the next step looks obvious. If a phase is not
 applicable, record why in the handoff.
 
-### 1. Architect Pass
+### 1. Orchestrator Pass
+
+Use the `orchestrator` custom agent when available for task breakdown,
+workflow routing, sequencing, and handoff management.
+
+- Clarify the goal, success criteria, constraints, and open questions.
+- Decide whether the task is trivial or non-trivial.
+- Split non-trivial work into appropriate architect, implementer, and reviewer
+  phases.
+- Identify which files, layers, or responsibilities each phase should cover.
+- Track dependency order, parallelizable work, risks, and expected verification.
+- Do not modify files during this pass.
+- If product intent, ownership, or priority is ambiguous, stop and ask before
+  assigning implementation work.
+
+### 2. Architect Pass
 
 Use the `architect` custom agent when available. If custom agents are not
 available, perform this pass manually before editing files.
@@ -30,7 +47,7 @@ available, perform this pass manually before editing files.
 - If the design is ambiguous or requires a product decision, stop and ask before
   implementing.
 
-### 2. Implementer Pass
+### 3. Implementer Pass
 
 Use the `implementer` custom agent when available. If custom agents are not
 available, treat this as a separate implementation phase after the architecture
@@ -45,7 +62,7 @@ pass is complete.
   adapter/RPC, UI, tests, or security.
 - Run the relevant verification commands before entering the review pass.
 
-### 3. Reviewer Pass
+### 4. Reviewer Pass
 
 Use the `reviewer` custom agent when available. If custom agents are not
 available, use a separate human reviewer when possible. If no separate reviewer
@@ -59,7 +76,7 @@ implementation context.
 - Fix all `BLOCKER` and `MAJOR` findings before handoff.
 - If only `MINOR` or `NIT` findings remain, mention them in the handoff.
 
-### 4. Handoff
+### 5. Handoff
 
 Before final handoff, report:
 
@@ -71,6 +88,23 @@ Before final handoff, report:
 - Remaining risks or skipped phases, if any.
 
 ## Custom Agents
+
+### Orchestrator
+
+Use `orchestrator` for task intake, task decomposition, workflow routing,
+sequencing, coordination across agents, and final handoff readiness.
+
+Without the custom agent, perform a manual orchestration pass before deciding
+which specialist phases are needed.
+
+- Confirm goal, constraints, success criteria, and ambiguity.
+- Choose the smallest workflow that safely fits the task.
+- Break work into clear phases and ownership boundaries.
+- Decide when architect, implementer, and reviewer passes are required.
+- Track handoff requirements, verification expectations, and unresolved risks.
+- Do not modify files.
+- Do not make detailed architecture decisions that belong to the architect.
+- Do not implement code or perform final code review.
 
 ### Architect
 
