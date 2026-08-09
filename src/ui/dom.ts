@@ -241,7 +241,8 @@ function actionEditorMarkup(state: UIState, page: PageConfig): string {
 function bindEvents(context: RenderContext) {
   context.root.querySelector("[data-action='create-profile']")?.addEventListener("click", async () => {
     if (!canStartProfileOperation(context.state)) return;
-    const name = window.prompt("Profile name", "New Profile") ?? "";
+    const name = window.prompt("Profile name", "New Profile");
+    if (name === null) return;
     const submission = profileNameSubmission(name);
     if (submission.kind === "invalid") {
       context.state = markProfileOperationFailed(context.state, submission.message);
