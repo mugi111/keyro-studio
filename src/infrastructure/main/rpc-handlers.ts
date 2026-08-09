@@ -3,9 +3,16 @@ import { ok } from "../../shared/result";
 import type { StudioService } from "../../application/studio-service";
 import type { StudioRPC } from "../rpc/electrobun-rpc-contract";
 import type { PageConfig } from "../../domain/profile";
-import type { VirtualInput } from "../../application/ports/core-port";
+import type { CoreEvent, VirtualInput } from "../../application/ports/core-port";
 
 export function createStudioRPC(service: StudioService) {
+  let webviewReady = false;
+
+  const sendCoreEvent = (event: CoreEvent) => {
+    if (!webviewReady) return;
+    rpc.send.coreEvent(event);
+  };
+
   const rpc = BrowserView.defineRPC<StudioRPC>({
     handlers: {
       requests: {
@@ -30,11 +37,12 @@ export function createStudioRPC(service: StudioService) {
       },
       messages: {
         uiReady: () => {
+          webviewReady = true;
           service.getConnectionStatus().then((status) => {
-            rpc.send.coreEvent({ type: "connection", status });
+            sendCoreEvent({ type: "connection", status });
           });
           service.getSnapshot().then((snapshot) => {
-            if (snapshot.ok) rpc.send.coreEvent({ type: "snapshot", snapshot: snapshot.value });
+            if (snapshot.ok) sendCoreEvent({ type: "snapshot", snapshot: snapshot.value });
           });
         }
       }
@@ -42,7 +50,7 @@ export function createStudioRPC(service: StudioService) {
   });
 
   service.subscribe((event) => {
-    rpc.send.coreEvent(event);
+    sendCoreEvent(event);
   });
 
   return rpc;
