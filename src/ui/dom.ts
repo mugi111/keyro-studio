@@ -8,6 +8,9 @@ import {
   initialUIState,
   draftUrlForCurrentTarget,
   markActionDraftChanged,
+  markProfileOperationFailed,
+  markProfileOperationStarted,
+  markProfileOperationSucceeded,
   markSaveFailed,
   markSaveStarted,
   reduceCoreEvent,
@@ -88,6 +91,9 @@ function render(context: RenderContext) {
         </div>
         <div class="profile-list">
           ${state.snapshot?.profiles.map((item) => profileButton(item.id, item.name, item.active, item.id === state.selectedProfileId)).join("") ?? ""}
+        </div>
+        <div class="profile-state ${state.profileStatus.state}">
+          ${profileStatusText(state)}
         </div>
         <div class="connection-tools">
           <button data-action="disconnect">Disconnect</button>
@@ -210,19 +216,29 @@ function bindEvents(context: RenderContext) {
   context.root.querySelector("[data-action='create-profile']")?.addEventListener("click", async () => {
     const name = window.prompt("Profile name", "New Profile") ?? "";
     if (!name.trim()) return;
-    await applySnapshot(context, context.api.createProfile(name));
+    context.state = markProfileOperationStarted(context.state, "Creating profile...");
+    render(context);
+    await applyProfileSnapshot(context, context.api.createProfile(name), "Profile created.");
   });
 
   context.root.querySelectorAll<HTMLElement>("[data-profile]").forEach((node) => {
     node.addEventListener("click", async () => {
-      await applySnapshot(context, context.api.activateProfile(node.dataset.profile!));
+      context.state = markProfileOperationStarted(context.state, "Activating profile...");
+      render(context);
+      await applyProfileSnapshot(context, context.api.activateProfile(node.dataset.profile!), "Profile activated.");
     });
   });
 
   context.root.querySelector("[data-field='profile-name']")?.addEventListener("change", async (event) => {
     const profileId = context.state.selectedProfileId;
     if (!profileId) return;
-    await applySnapshot(context, context.api.renameProfile(profileId, (event.target as HTMLInputElement).value));
+    context.state = markProfileOperationStarted(context.state, "Renaming profile...");
+    render(context);
+    await applyProfileSnapshot(
+      context,
+      context.api.renameProfile(profileId, (event.target as HTMLInputElement).value),
+      "Profile renamed."
+    );
   });
 
   context.root.querySelector("[data-field='action-url']")?.addEventListener("input", (event) => {
@@ -332,6 +348,23 @@ async function applySnapshot(context: RenderContext, pending: Promise<Result<Non
   render(context);
 }
 
+async function applyProfileSnapshot(
+  context: RenderContext,
+  pending: Promise<Result<NonNullable<UIState["snapshot"]>>>,
+  successMessage: string
+) {
+  const result = await pending;
+  if (result.ok) {
+    context.state = markProfileOperationSucceeded(
+      reduceCoreEvent({ ...context.state, error: null }, { type: "snapshot", snapshot: result.value }),
+      successMessage
+    );
+  } else {
+    context.state = markProfileOperationFailed(context.state, result.error.message);
+  }
+  render(context);
+}
+
 function profileButton(id: string, name: string, active: boolean, selected: boolean): string {
   return `<button data-profile="${id}" class="${selected ? "selected" : ""}">${escapeHtml(name)}${active ? "<span>Active</span>" : ""}</button>`;
 }
@@ -360,6 +393,16 @@ function saveStatusText(state: UIState): string {
   }
   if (state.saveStatus.state === "idle") return "No unsaved changes.";
   return state.saveStatus.message;
+}
+
+function profileStatusText(state: UIState): string {
+  if (state.connection.state !== "connected" && state.profileStatus.state !== "working") {
+    return state.profileStatus.state === "failed"
+      ? state.profileStatus.message
+      : "Profiles cannot be changed until Core reconnects.";
+  }
+  if (state.profileStatus.state === "idle") return "No profile changes in progress.";
+  return state.profileStatus.message;
 }
 
 function escapeHtml(value: string): string {
