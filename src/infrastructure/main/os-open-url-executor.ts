@@ -16,6 +16,7 @@ export class OsOpenUrlExecutor implements ActionExecutorPort {
       return {
         state: "failure",
         target,
+        code: "validation_failed",
         message: "This action type is not supported."
       };
     }
@@ -25,6 +26,7 @@ export class OsOpenUrlExecutor implements ActionExecutorPort {
       return {
         state: "failure",
         target,
+        code: "validation_failed",
         message: validated.error.message
       };
     }
@@ -35,6 +37,7 @@ export class OsOpenUrlExecutor implements ActionExecutorPort {
         return {
           state: "failure",
           target,
+          code: "open_url_failed",
           message: "The operating system did not accept the URL."
         };
       }
@@ -47,6 +50,7 @@ export class OsOpenUrlExecutor implements ActionExecutorPort {
       return {
         state: "failure",
         target,
+        code: "open_url_failed",
         message: "The operating system could not open the URL."
       };
     }

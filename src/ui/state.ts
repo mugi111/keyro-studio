@@ -158,7 +158,7 @@ export function markVirtualInputFailed(state: UIState, message: string): UIState
   if (current.state !== "running") return { ...state, error: message };
   return {
     ...state,
-    actionStatus: { state: "failure", target: current.target, message },
+    actionStatus: { state: "failure", target: current.target, code: "internal", message },
     error: message
   };
 }
