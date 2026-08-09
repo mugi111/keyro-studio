@@ -3,6 +3,7 @@ import { StudioService } from "../../application/studio-service";
 import { createCoreAdapter, readCoreAdapterConfig } from "./core-adapter-factory";
 import { registerAppLifecycle } from "./app-lifecycle";
 import { createStudioRPC } from "./rpc-handlers";
+import { studioNavigationRules, studioViewUrl, studioWindowSecurityPolicy } from "./window-policy";
 
 const service = new StudioService(createCoreAdapter(readCoreAdapterConfig(), { openUrl: (url) => Utils.openExternal(url) }));
 const rpc = createStudioRPC(service);
@@ -28,13 +29,13 @@ ApplicationMenu.setApplicationMenu([
 
 const mainWindow = new BrowserWindow({
   title: "Keyro Studio",
-  url: "views://studio/index.html",
+  url: studioViewUrl,
   frame: { x: 120, y: 120, width: 1180, height: 820 },
   rpc,
-  sandbox: false,
-  navigationRules: JSON.stringify(["views://studio/*"])
+  sandbox: studioWindowSecurityPolicy.sandbox,
+  navigationRules: JSON.stringify(studioNavigationRules)
 });
 
-mainWindow.webview.setNavigationRules(["views://studio/*"]);
+mainWindow.webview.setNavigationRules([...studioNavigationRules]);
 
 registerAppLifecycle(service, () => Utils.quit());

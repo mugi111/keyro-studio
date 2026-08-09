@@ -5,6 +5,11 @@ import { createCoreAdapter, readCoreAdapterConfig } from "../src/infrastructure/
 import { registerAppLifecycle } from "../src/infrastructure/main/app-lifecycle";
 import { MockActionExecutor } from "../src/infrastructure/main/mock-action-executor";
 import { OsOpenUrlExecutor } from "../src/infrastructure/main/os-open-url-executor";
+import {
+  plannedCoreStudioProtocolTag,
+  protocolPackageName,
+  protocolPackageUnavailableReason
+} from "../src/infrastructure/main/protocol-readiness";
 import type { ActionExecutionTarget } from "../src/application/ports/action-executor-port";
 
 const keyTarget: ActionExecutionTarget = {
@@ -42,7 +47,11 @@ describe("core adapter factory", () => {
     expect(config.mode).toBe("local-ipc");
     expect(config.actionExecutorMode).toBe("mock");
     expect((await service.getConnectionStatus()).state).toBe("disconnected");
-    expect((await service.createProfile("Nope")).ok).toBe(false);
+    const result = await service.createProfile("Nope");
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.message).toContain("Keyro Core IPC adapter is not available yet.");
+    }
   });
 
   test("ignores unknown modes to keep development usable", () => {
@@ -55,6 +64,12 @@ describe("core adapter factory", () => {
       actionExecutorMode: "os-open-url"
     });
     expect(readCoreAdapterConfig({ KEYRO_STUDIO_ACTION_EXECUTOR: "anything-else" }).actionExecutorMode).toBe("mock");
+  });
+
+  test("keeps protocol package readiness in the main adapter boundary", () => {
+    expect(protocolPackageName).toBe("@keyro/protocol");
+    expect(plannedCoreStudioProtocolTag).toBe("v0.1.0");
+    expect(protocolPackageUnavailableReason()).toContain("@keyro/protocol v0.1.0");
   });
 });
 
