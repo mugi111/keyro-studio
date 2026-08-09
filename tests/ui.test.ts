@@ -5,6 +5,9 @@ import {
   draftUrlForCurrentTarget,
   initialUIState,
   markActionDraftChanged,
+  markProfileOperationFailed,
+  markProfileOperationStarted,
+  markProfileOperationSucceeded,
   markSaveFailed,
   markSaveStarted,
   reduceCoreEvent,
@@ -105,5 +108,19 @@ describe("ui state", () => {
     expect(reconnected.actionDraft?.url).toBe("https://example.com/retry");
     expect(draftUrlForCurrentTarget(reconnected)).toBe("https://example.com/retry");
     expect(reconnected.saveStatus).toEqual({ state: "dirty", message: "Reconnected. Changes are not saved yet." });
+  });
+
+  test("tracks profile operation status independently from action saves", () => {
+    const connected = { ...initialUIState, connection: { state: "connected" as const } };
+    const dirty = markActionDraftChanged(selectKeyTarget(connected, 0), "https://example.com");
+    const working = markProfileOperationStarted(dirty, "Renaming profile...");
+    const failed = markProfileOperationFailed(working, "Core is disconnected.");
+    const succeeded = markProfileOperationSucceeded(failed, "Profile renamed.");
+
+    expect(working.profileStatus).toEqual({ state: "working", message: "Renaming profile..." });
+    expect(failed.profileStatus).toEqual({ state: "failed", message: "Core is disconnected." });
+    expect(failed.saveStatus).toEqual({ state: "dirty", message: "Unsaved changes." });
+    expect(succeeded.profileStatus).toEqual({ state: "success", message: "Profile renamed." });
+    expect(succeeded.error).toBeNull();
   });
 });

@@ -25,6 +25,29 @@ describe("studio service with mock core", () => {
     if (activated.ok) expect(activated.value.activeProfileId).toBe(work!.id);
   });
 
+  test("keeps profile operations retryable after Core reconnects", async () => {
+    const service = new StudioService(new MockCoreAdapter());
+
+    await service.simulateDisconnect();
+    const failedCreate = await service.createProfile("Offline Work");
+    expect(failedCreate.ok).toBe(false);
+
+    await service.simulateReconnect();
+    const created = await service.createProfile("Offline Work");
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    const renamed = await service.renameProfile(created.value.id, "Recovered Work");
+    expect(renamed.ok).toBe(true);
+
+    const activated = await service.activateProfile(created.value.id);
+    expect(activated.ok).toBe(true);
+    if (activated.ok) {
+      expect(activated.value.activeProfileId).toBe(created.value.id);
+      expect(activated.value.profiles.find((profile) => profile.id === created.value.id)?.name).toBe("Recovered Work");
+    }
+  });
+
   test("saves and reloads all default pages and keys", async () => {
     const service = new StudioService(new MockCoreAdapter());
     const snapshot = await service.getSnapshot();

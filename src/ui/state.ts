@@ -12,6 +12,7 @@ export type UIState = {
   selectedPageIndex: number;
   actionStatus: ActionExecutionStatus;
   saveStatus: SaveStatus;
+  profileStatus: ProfileStatus;
   actionDraft: ActionDraft | null;
   editingKeyIndex: number | null;
   editingEncoderIndex: number | null;
@@ -24,6 +25,12 @@ export type SaveStatus =
   | { state: "dirty"; message: string }
   | { state: "saving"; message: string }
   | { state: "saved"; message: string }
+  | { state: "failed"; message: string };
+
+export type ProfileStatus =
+  | { state: "idle" }
+  | { state: "working"; message: string }
+  | { state: "success"; message: string }
   | { state: "failed"; message: string };
 
 export type ActionEditTarget =
@@ -47,6 +54,7 @@ export const initialUIState: UIState = {
   selectedPageIndex: 0,
   actionStatus: { state: "idle" },
   saveStatus: { state: "idle" },
+  profileStatus: { state: "idle" },
   actionDraft: null,
   editingKeyIndex: null,
   editingEncoderIndex: null,
@@ -106,6 +114,30 @@ export function markSaveFailed(state: UIState, message: string): UIState {
   return {
     ...state,
     saveStatus: { state: "failed", message },
+    error: message
+  };
+}
+
+export function markProfileOperationStarted(state: UIState, message: string): UIState {
+  return {
+    ...state,
+    profileStatus: { state: "working", message },
+    error: null
+  };
+}
+
+export function markProfileOperationSucceeded(state: UIState, message: string): UIState {
+  return {
+    ...state,
+    profileStatus: { state: "success", message },
+    error: null
+  };
+}
+
+export function markProfileOperationFailed(state: UIState, message: string): UIState {
+  return {
+    ...state,
+    profileStatus: { state: "failed", message },
     error: message
   };
 }

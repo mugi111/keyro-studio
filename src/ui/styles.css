@@ -152,6 +152,26 @@ button:hover {
   color: #2e6a4f;
 }
 
+.profile-state {
+  padding: 10px;
+  border: 1px solid #d8dee8;
+  background: #ffffff;
+  border-radius: 8px;
+  color: #526171;
+}
+
+.profile-state.working {
+  border-color: #b7791f;
+}
+
+.profile-state.success {
+  border-color: #27875e;
+}
+
+.profile-state.failed {
+  border-color: #bd3b3b;
+}
+
 .connection-tools {
   margin-top: auto;
 }
