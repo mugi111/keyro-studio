@@ -1,4 +1,8 @@
-import type { ActionExecutorPort, ActionExecutionStatus } from "../../application/ports/action-executor-port";
+import type {
+  ActionExecutionStatus,
+  ActionExecutionTarget,
+  ActionExecutorPort
+} from "../../application/ports/action-executor-port";
 import type { Action } from "../../domain/action";
 import { validateOpenUrl } from "../../shared/url";
 
@@ -7,7 +11,7 @@ export type OpenUrlFn = (url: string) => boolean | Promise<boolean>;
 export class OsOpenUrlExecutor implements ActionExecutorPort {
   constructor(private readonly openUrl: OpenUrlFn) {}
 
-  async execute(action: Action, target: string): Promise<ActionExecutionStatus> {
+  async execute(action: Action, target: ActionExecutionTarget): Promise<ActionExecutionStatus> {
     if (action.kind !== "open_url") {
       return {
         state: "failure",

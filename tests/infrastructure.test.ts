@@ -5,6 +5,21 @@ import { createCoreAdapter, readCoreAdapterConfig } from "../src/infrastructure/
 import { registerAppLifecycle } from "../src/infrastructure/main/app-lifecycle";
 import { MockActionExecutor } from "../src/infrastructure/main/mock-action-executor";
 import { OsOpenUrlExecutor } from "../src/infrastructure/main/os-open-url-executor";
+import type { ActionExecutionTarget } from "../src/application/ports/action-executor-port";
+
+const keyTarget: ActionExecutionTarget = {
+  type: "key",
+  profileId: "profile-default",
+  pageIndex: 0,
+  keyIndex: 0
+};
+
+const secondKeyTarget: ActionExecutionTarget = {
+  type: "key",
+  profileId: "profile-default",
+  pageIndex: 0,
+  keyIndex: 1
+};
 
 describe("core adapter factory", () => {
   test("defaults to mock mode", async () => {
@@ -56,7 +71,7 @@ describe("action executor factory", () => {
 
   test("OS executor mode is safe when an opener is not configured", async () => {
     const executor = createActionExecutor("os-open-url");
-    const result = await executor.execute({ kind: "open_url", url: "https://example.com/" }, "Key 1");
+    const result = await executor.execute({ kind: "open_url", url: "https://example.com/" }, keyTarget);
 
     expect(result.state).toBe("failure");
     if (result.state === "failure") {
@@ -69,8 +84,8 @@ describe("mock action executor", () => {
   test("returns user-facing success and failure states", async () => {
     const executor = new MockActionExecutor();
 
-    const success = await executor.execute({ kind: "open_url", url: "https://example.com/" }, "Key 1");
-    const failure = await executor.execute({ kind: "open_url", url: "https://fail.example.com/" }, "Key 2");
+    const success = await executor.execute({ kind: "open_url", url: "https://example.com/" }, keyTarget);
+    const failure = await executor.execute({ kind: "open_url", url: "https://fail.example.com/" }, secondKeyTarget);
 
     expect(success.state).toBe("success");
     expect(failure.state).toBe("failure");
@@ -89,7 +104,7 @@ describe("OS open URL executor", () => {
       return true;
     });
 
-    const result = await executor.execute({ kind: "open_url", url: "https://example.com/a b" }, "Key 1");
+    const result = await executor.execute({ kind: "open_url", url: "https://example.com/a b" }, keyTarget);
 
     expect(result.state).toBe("success");
     expect(opened).toEqual(["https://example.com/a%20b"]);
@@ -102,7 +117,7 @@ describe("OS open URL executor", () => {
       return true;
     });
 
-    const result = await executor.execute({ kind: "open_url", url: "javascript:alert(1)" }, "Key 1");
+    const result = await executor.execute({ kind: "open_url", url: "javascript:alert(1)" }, keyTarget);
 
     expect(result.state).toBe("failure");
     expect(called).toBe(false);
@@ -116,7 +131,7 @@ describe("OS open URL executor", () => {
       throw new Error("native stack detail");
     });
 
-    const result = await executor.execute({ kind: "open_url", url: "https://example.com/" }, "Key 1");
+    const result = await executor.execute({ kind: "open_url", url: "https://example.com/" }, keyTarget);
 
     expect(result.state).toBe("failure");
     if (result.state === "failure") {
@@ -128,7 +143,7 @@ describe("OS open URL executor", () => {
   test("converts opener false return to a user-facing failure", async () => {
     const executor = new OsOpenUrlExecutor(() => false);
 
-    const result = await executor.execute({ kind: "open_url", url: "https://example.com/" }, "Key 1");
+    const result = await executor.execute({ kind: "open_url", url: "https://example.com/" }, keyTarget);
 
     expect(result.state).toBe("failure");
     if (result.state === "failure") {

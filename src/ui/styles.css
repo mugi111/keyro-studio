@@ -315,6 +315,41 @@ input {
   border-color: #b7791f;
 }
 
+.key-tile.target-running,
+.encoder button.target-running {
+  border-color: #b7791f;
+  background: #fff7e6;
+}
+
+.key-tile.target-success,
+.encoder button.target-success {
+  border-color: #27875e;
+  background: #eefbf5;
+}
+
+.key-tile.target-failure,
+.encoder button.target-failure {
+  border-color: #bd3b3b;
+  background: #fff1f1;
+}
+
+.target-status {
+  display: inline-flex;
+  min-height: 19px;
+  width: fit-content;
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: #fff;
+  color: #415264;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.target-status.empty {
+  visibility: hidden;
+}
+
 .save-state.dirty,
 .save-state.saving {
   border-color: #b7791f;

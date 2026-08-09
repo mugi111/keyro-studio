@@ -1,5 +1,5 @@
 import type { PageConfig, Profile, StudioSnapshot } from "../domain/profile";
-import type { ActionExecutionStatus } from "../application/ports/action-executor-port";
+import type { ActionExecutionStatus, ActionExecutionTarget } from "../application/ports/action-executor-port";
 import type {
   ConnectionStatus,
   CoreEvent
@@ -144,11 +144,22 @@ export function markProfileOperationFailed(state: UIState, message: string): UIS
 
 export function markVirtualInputStarted(state: UIState): UIState {
   const target = currentEditTarget(state);
-  if (!target) return state;
+  const executionTarget = target && state.selectedProfileId ? actionExecutionTargetForEditTarget(state.selectedProfileId, target) : null;
+  if (!executionTarget) return state;
   return {
     ...state,
-    actionStatus: { state: "running", target: describeEditTarget(target) },
+    actionStatus: { state: "running", target: executionTarget },
     error: null
+  };
+}
+
+export function markVirtualInputFailed(state: UIState, message: string): UIState {
+  const current = state.actionStatus;
+  if (current.state !== "running") return { ...state, error: message };
+  return {
+    ...state,
+    actionStatus: { state: "failure", target: current.target, message },
+    error: message
   };
 }
 
@@ -208,6 +219,13 @@ export function canStartVirtualInput(state: UIState): boolean {
   return state.actionStatus.state !== "running";
 }
 
+export function actionStatusForTarget(state: UIState, target: ActionEditTarget): ActionExecutionStatus | null {
+  if (state.actionStatus.state === "idle") return null;
+  if (!state.selectedProfileId) return null;
+  const executionTarget = actionExecutionTargetForEditTarget(state.selectedProfileId, target);
+  return sameActionExecutionTarget(state.actionStatus.target, executionTarget) ? state.actionStatus : null;
+}
+
 function clearEditingTarget(state: UIState): UIState {
   return {
     ...state,
@@ -255,11 +273,28 @@ function sameEditTarget(left: ActionEditTarget, right: ActionEditTarget): boolea
   return false;
 }
 
-function describeEditTarget(target: ActionEditTarget): string {
+function actionExecutionTargetForEditTarget(profileId: string, target: ActionEditTarget): ActionExecutionTarget {
   if (target.type === "key") {
-    return `Page ${target.pageIndex + 1} Key ${target.keyIndex + 1}`;
+    return { ...target, profileId };
   }
-  return `Page ${target.pageIndex + 1} Encoder ${target.encoderIndex + 1} ${target.control}`;
+  return {
+    type: "encoder",
+    profileId,
+    pageIndex: target.pageIndex,
+    encoderIndex: target.encoderIndex,
+    interaction: target.control
+  };
+}
+
+function sameActionExecutionTarget(left: ActionExecutionTarget, right: ActionExecutionTarget): boolean {
+  if (left.type !== right.type || left.profileId !== right.profileId || left.pageIndex !== right.pageIndex) {
+    return false;
+  }
+  if (left.type === "key" && right.type === "key") return left.keyIndex === right.keyIndex;
+  if (left.type === "encoder" && right.type === "encoder") {
+    return left.encoderIndex === right.encoderIndex && left.interaction === right.interaction;
+  }
+  return false;
 }
 
 function normalizeSaveStatusForConnection(

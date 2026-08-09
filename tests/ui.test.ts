@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { describeGridColumns } from "../src/ui/dom";
 import {
+  actionStatusForTarget,
   canStartActionSave,
   canStartProfileOperation,
   canStartVirtualInput,
@@ -13,6 +14,7 @@ import {
   markProfileOperationSucceeded,
   markSaveFailed,
   markSaveStarted,
+  markVirtualInputFailed,
   markVirtualInputStarted,
   reduceCoreEvent,
   selectKeyTarget
@@ -20,6 +22,15 @@ import {
 import { createEmptyProfile } from "../src/domain/profile";
 
 describe("ui state", () => {
+  const keyTarget = { type: "key" as const, profileId: "p1", pageIndex: 0, keyIndex: 1 };
+  const encoderTarget = {
+    type: "encoder" as const,
+    profileId: "p1",
+    pageIndex: 1,
+    encoderIndex: 0,
+    interaction: "rotateRight" as const
+  };
+
   test("selects active profile and clamps selected page", () => {
     const layout = { pageCount: 2, keyRows: 2, keyColumns: 2, encoderCount: 1 };
     const profile = createEmptyProfile("p1", "Default", layout, true);
@@ -133,7 +144,7 @@ describe("ui state", () => {
     const profileWorking = markProfileOperationStarted(initialUIState, "Creating profile...");
     const actionRunning = {
       ...initialUIState,
-      actionStatus: { state: "running" as const, target: "Page 1 Key 1" }
+      actionStatus: { state: "running" as const, target: keyTarget }
     };
 
     expect(canStartActionSave(saving)).toBe(false);
@@ -145,9 +156,62 @@ describe("ui state", () => {
   });
 
   test("marks virtual input running before the Core event returns", () => {
-    const started = markVirtualInputStarted(selectKeyTarget(initialUIState, 0));
+    const started = markVirtualInputStarted(
+      selectKeyTarget({ ...initialUIState, selectedProfileId: "p1" }, 0)
+    );
 
-    expect(started.actionStatus).toEqual({ state: "running", target: "Page 1 Key 1" });
+    expect(started.actionStatus).toEqual({
+      state: "running",
+      target: { type: "key", profileId: "p1", pageIndex: 0, keyIndex: 0 }
+    });
     expect(canStartVirtualInput(started)).toBe(false);
+  });
+
+  test("marks virtual input failure when the RPC returns an error", () => {
+    const started = markVirtualInputStarted(
+      selectKeyTarget({ ...initialUIState, selectedProfileId: "p1" }, 0)
+    );
+    const failed = markVirtualInputFailed(started, "Core is disconnected.");
+
+    expect(failed.actionStatus).toEqual({
+      state: "failure",
+      target: { type: "key", profileId: "p1", pageIndex: 0, keyIndex: 0 },
+      message: "Core is disconnected."
+    });
+    expect(canStartVirtualInput(failed)).toBe(true);
+    expect(failed.error).toBe("Core is disconnected.");
+  });
+
+  test("maps action execution status only to its matching key target", () => {
+    const state = {
+      ...initialUIState,
+      selectedProfileId: "p1",
+      actionStatus: { state: "success" as const, target: keyTarget, message: "Action completed." }
+    };
+
+    expect(actionStatusForTarget(state, { type: "key", pageIndex: 0, keyIndex: 1 })).toEqual(state.actionStatus);
+    expect(actionStatusForTarget(state, { type: "key", pageIndex: 0, keyIndex: 0 })).toBeNull();
+    expect(actionStatusForTarget(state, { type: "key", pageIndex: 1, keyIndex: 1 })).toBeNull();
+    expect(actionStatusForTarget({ ...state, selectedProfileId: "p2" }, { type: "key", pageIndex: 0, keyIndex: 1 })).toBeNull();
+  });
+
+  test("maps action execution status only to its matching encoder target", () => {
+    const state = {
+      ...initialUIState,
+      selectedProfileId: "p1",
+      actionStatus: {
+        state: "failure" as const,
+        target: encoderTarget,
+        message: "Action failed."
+      }
+    };
+
+    expect(
+      actionStatusForTarget(state, { type: "encoder", pageIndex: 1, encoderIndex: 0, control: "rotateRight" })
+    ).toEqual(state.actionStatus);
+    expect(
+      actionStatusForTarget(state, { type: "encoder", pageIndex: 1, encoderIndex: 0, control: "rotateLeft" })
+    ).toBeNull();
+    expect(actionStatusForTarget(state, { type: "key", pageIndex: 1, keyIndex: 0 })).toBeNull();
   });
 });
