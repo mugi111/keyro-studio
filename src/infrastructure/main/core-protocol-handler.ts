@@ -207,7 +207,7 @@ function errorCodeFromAppCode(code: string): ErrorCode {
 }
 
 function isCompatibleProtocol(protocol: { major: number; minor: number }): boolean {
-  return protocol.major === keyroProtocolVersion.major;
+  return protocol.major === keyroProtocolVersion.major && protocol.minor === keyroProtocolVersion.minor;
 }
 
 function decodeClientEnvelope(input: unknown): DecodeResult {

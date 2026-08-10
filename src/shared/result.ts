@@ -1,5 +1,6 @@
 export type AppErrorCode =
   | "core_unavailable"
+  | "unsupported_operation"
   | "invalid_url"
   | "not_found"
   | "validation_error"
