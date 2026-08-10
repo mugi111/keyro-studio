@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { EventEmitter } from "node:events";
 import { StudioService } from "../src/application/studio-service";
 import { createActionExecutor, readActionExecutorMode } from "../src/infrastructure/main/action-executor-factory";
 import { createCoreAdapter, readCoreAdapterConfig } from "../src/infrastructure/main/core-adapter-factory";
@@ -14,10 +15,13 @@ import {
   controlDtoFromActionTarget,
   controlDtoFromVirtualInput,
   createClientEnvelope,
-  keyroProtocolVersion
+  keyroProtocolVersion,
+  type ClientEnvelope,
+  type ServerMessage
 } from "../src/infrastructure/main/core-protocol";
 import { MockActionExecutor } from "../src/infrastructure/main/mock-action-executor";
 import { MockCoreAdapter } from "../src/infrastructure/main/mock-core-adapter";
+import { LocalIpcCoreAdapter } from "../src/infrastructure/main/local-ipc-core-adapter";
 import { OsOpenUrlExecutor } from "../src/infrastructure/main/os-open-url-executor";
 import {
   plannedCoreStudioProtocolTag,
@@ -54,17 +58,23 @@ describe("core adapter factory", () => {
     }
   });
 
-  test("exposes unavailable local-ipc adapter until protocol exists", async () => {
-    const config = readCoreAdapterConfig({ KEYRO_STUDIO_CORE_MODE: "local-ipc" });
-    const service = new StudioService(createCoreAdapter(config));
+  test("creates local-ipc adapter for Core connections", async () => {
+    const config = readCoreAdapterConfig({
+      KEYRO_STUDIO_CORE_MODE: "local-ipc",
+      KEYRO_STUDIO_CORE_SOCKET: "memory://missing-core"
+    });
+    const service = new StudioService(
+      createCoreAdapter(config, { localIpc: { connect: () => new FakeCoreSocket(() => undefined, "Core is offline.") } })
+    );
 
     expect(config.mode).toBe("local-ipc");
+    expect(config.socketPath).toBe("memory://missing-core");
     expect(config.actionExecutorMode).toBe("mock");
     expect((await service.getConnectionStatus()).state).toBe("disconnected");
-    const result = await service.createProfile("Nope");
+    const result = await service.getSnapshot();
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error.message).toContain("Keyro Core IPC adapter is not available yet.");
+      expect(result.error.message).toContain("Could not communicate with Keyro Core.");
     }
   });
 
@@ -78,6 +88,18 @@ describe("core adapter factory", () => {
       actionExecutorMode: "os-open-url"
     });
     expect(readCoreAdapterConfig({ KEYRO_STUDIO_ACTION_EXECUTOR: "anything-else" }).actionExecutorMode).toBe("mock");
+  });
+
+  test("reports unsupported Core operations distinctly from connection failures", async () => {
+    const adapter = new LocalIpcCoreAdapter({ connect: () => new FakeCoreSocket(() => undefined) });
+
+    const created = await adapter.createProfile("Second");
+    const renamed = await adapter.renameProfile("profile-core", "Renamed");
+
+    expect(created.ok).toBe(false);
+    if (!created.ok) expect(created.error.code).toBe("unsupported_operation");
+    expect(renamed.ok).toBe(false);
+    if (!renamed.ok) expect(renamed.error.code).toBe("unsupported_operation");
   });
 
   test("keeps protocol package readiness in the main adapter boundary", () => {
@@ -185,7 +207,7 @@ describe("temporary Core protocol v0.1.0", () => {
     });
   });
 
-  test("accepts same-major protocol handshakes for minor additions", async () => {
+  test("rejects same-major minor-skew protocol handshakes during v0", async () => {
     const service = new StudioService(new MockCoreAdapter());
 
     const response = await handleCoreProtocolEnvelope(
@@ -201,7 +223,14 @@ describe("temporary Core protocol v0.1.0", () => {
       }
     );
 
-    expect(response.type).toBe("handshake_accepted");
+    expect(response).toEqual({
+      type: "error",
+      request_id: "request-future-minor",
+      error: {
+        code: "incompatible_protocol",
+        message: "Keyro Studio and Core protocol versions are incompatible."
+      }
+    });
   });
 
   test("decodes untrusted protocol input before dispatching it", async () => {
@@ -319,6 +348,214 @@ describe("temporary Core protocol v0.1.0", () => {
       code: "no_action_assigned",
       message: "No action is assigned to this control."
     });
+  });
+});
+
+describe("local IPC Core adapter", () => {
+  test("handshakes, lists profiles, saves assignments, activates profiles, and maps action events from Core", async () => {
+    let activeProfileId = "profile-core";
+    const assignments: unknown[] = [];
+    const server = await createFakeCoreServer(async (envelope, socket) => {
+      if (envelope.message.type === "handshake") {
+        writeServerMessage(socket, {
+          type: "handshake_accepted",
+          request_id: envelope.request_id,
+          core_version: "0.1.0",
+          protocol: keyroProtocolVersion
+        });
+        return;
+      }
+      if (envelope.message.type === "list_profiles") {
+        writeServerMessage(socket, {
+          type: "profiles",
+          request_id: envelope.request_id,
+          profiles: [
+            { id: "profile-core", name: "Core Default", is_active: activeProfileId === "profile-core" },
+            { id: "profile-second", name: "Second", is_active: activeProfileId === "profile-second" }
+          ]
+        });
+        return;
+      }
+      if (envelope.message.type === "set_active_profile") {
+        activeProfileId = envelope.message.profile_id;
+        writeServerMessage(socket, {
+          type: "acknowledged",
+          request_id: envelope.request_id
+        });
+        return;
+      }
+      if (envelope.message.type === "save_assignment") {
+        assignments.push(envelope.message.assignment);
+        writeServerMessage(socket, {
+          type: "acknowledged",
+          request_id: envelope.request_id
+        });
+        return;
+      }
+      if (envelope.message.type === "virtual_control_input") {
+        writeServerMessage(socket, {
+          type: "action_event",
+          event: {
+            state: "running",
+            execution_id: "execution-1",
+            profile_id: "profile-core",
+            control: envelope.message.control
+          }
+        });
+        writeServerMessage(socket, {
+          type: "action_event",
+          event: {
+            state: "succeeded",
+            execution_id: "execution-1"
+          }
+        });
+        writeServerMessage(socket, {
+          type: "acknowledged",
+          request_id: envelope.request_id
+        });
+      }
+    });
+    const adapter = new LocalIpcCoreAdapter({ socketPath: server.socketPath, connect: server.connect });
+    const events: unknown[] = [];
+    adapter.subscribe((event) => events.push(event));
+
+    const snapshot = await adapter.getSnapshot();
+    expect(snapshot.ok).toBe(true);
+    if (snapshot.ok) {
+      expect(snapshot.value.profiles[0]?.name).toBe("Core Default");
+    }
+
+    const activated = await adapter.activateProfile("profile-second");
+    expect(activated.ok).toBe(true);
+    if (activated.ok) {
+      expect(activated.value.activeProfileId).toBe("profile-second");
+    }
+
+    const page = structuredClone(snapshot.ok ? snapshot.value.profiles[0]?.pages[0] : null);
+    expect(page).not.toBeNull();
+    if (page) {
+      page.keys[0]!.action = { kind: "open_url", url: "https://example.com/" };
+      const saved = await adapter.savePage("profile-core", page);
+      expect(saved.ok).toBe(true);
+
+      const clearedPage = structuredClone(page);
+      clearedPage.keys[0]!.action = null;
+      const cleared = await adapter.savePage("profile-core", clearedPage);
+      expect(cleared.ok).toBe(false);
+      if (!cleared.ok) expect(cleared.error.code).toBe("unsupported_operation");
+
+      const multiChangePage = structuredClone(page);
+      multiChangePage.keys[1]!.action = { kind: "open_url", url: "https://example.com/second" };
+      multiChangePage.keys[2]!.action = { kind: "open_url", url: "https://example.com/third" };
+      const multiChange = await adapter.savePage("profile-core", multiChangePage);
+      expect(multiChange.ok).toBe(false);
+      if (!multiChange.ok) expect(multiChange.error.code).toBe("unsupported_operation");
+    }
+    expect(assignments).toContainEqual({
+      profile_id: "profile-core",
+      control: { kind: "key", page: 0, key: 0 },
+      action: { kind: "open_url", url: "https://example.com/" }
+    });
+    expect(assignments).toHaveLength(1);
+
+    const result = await adapter.sendVirtualInput({
+      type: "key",
+      profileId: "profile-core",
+      pageIndex: 0,
+      keyIndex: 0
+    });
+
+    expect(result.ok).toBe(true);
+    expect(events).toContainEqual({
+      type: "action",
+      status: {
+        state: "running",
+        target: {
+          type: "key",
+          profileId: "profile-core",
+          pageIndex: 0,
+          keyIndex: 0
+        }
+      }
+    });
+    expect(events).toContainEqual({
+      type: "action",
+      status: {
+        state: "success",
+        target: {
+          type: "key",
+          profileId: "profile-core",
+          pageIndex: 0,
+          keyIndex: 0
+        },
+        message: "Action completed."
+      }
+    });
+
+    await adapter.close();
+    await server.close();
+  });
+
+  test("rejects incompatible handshakes from Core", async () => {
+    const server = await createFakeCoreServer((envelope, socket) => {
+      if (envelope.message.type === "handshake") {
+        writeServerMessage(socket, {
+          type: "handshake_accepted",
+          request_id: envelope.request_id,
+          core_version: "0.1.0",
+          protocol: { major: 0, minor: 2 }
+        });
+      }
+    });
+    const adapter = new LocalIpcCoreAdapter({ socketPath: server.socketPath, connect: server.connect });
+
+    const result = await adapter.getSnapshot();
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain("Could not communicate with Keyro Core.");
+    await adapter.close();
+    await server.close();
+  });
+
+  test("fails pending requests when Core sends malformed messages", async () => {
+    const server = await createFakeCoreServer((envelope, socket) => {
+      if (envelope.message.type === "handshake") {
+        writeServerMessage(socket, {
+          type: "handshake_accepted",
+          request_id: envelope.request_id,
+          core_version: "0.1.0",
+          protocol: keyroProtocolVersion
+        });
+        return;
+      }
+      if (envelope.message.type === "list_profiles") {
+        socket.receiveRaw(`${JSON.stringify({ type: "profiles", request_id: envelope.request_id, profiles: [{ id: 1 }] })}\n`);
+      }
+    });
+    const adapter = new LocalIpcCoreAdapter({ socketPath: server.socketPath, connect: server.connect });
+
+    const result = await adapter.getSnapshot();
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.message).toContain("Could not communicate with Keyro Core.");
+    await adapter.close();
+    await server.close();
+  });
+
+  test("times out unanswered Core requests", async () => {
+    const server = await createFakeCoreServer(() => undefined);
+    const adapter = new LocalIpcCoreAdapter({
+      socketPath: server.socketPath,
+      connect: server.connect,
+      requestTimeoutMs: 1
+    });
+
+    const result = await adapter.getSnapshot();
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.detail).toContain("timed out");
+    await adapter.close();
+    await server.close();
   });
 });
 
@@ -445,3 +682,72 @@ describe("app lifecycle", () => {
     expect(quitCount).toBe(2);
   });
 });
+
+async function createFakeCoreServer(
+  handler: (envelope: ClientEnvelope, socket: FakeCoreSocket) => void | Promise<void>
+): Promise<{ socketPath: string; connect: () => FakeCoreSocket; close: () => Promise<void> }> {
+  const socketPath = "memory://keyro-core";
+  return {
+    socketPath,
+    connect: () => new FakeCoreSocket(handler),
+    close: async () => undefined
+  };
+}
+
+function writeServerMessage(socket: FakeCoreSocket, message: ServerMessage): void {
+  socket.receiveFromServer(message);
+}
+
+class FakeCoreSocket extends EventEmitter {
+  destroyed = false;
+  private buffer = "";
+
+  constructor(
+    private readonly handler: (envelope: ClientEnvelope, socket: FakeCoreSocket) => void | Promise<void>,
+    private readonly connectionError?: string
+  ) {
+    super();
+    queueMicrotask(() => {
+      if (this.connectionError) {
+        this.emit("error", new Error(this.connectionError));
+        this.destroy();
+        return;
+      }
+      this.emit("connect");
+    });
+  }
+
+  setEncoding(_encoding: BufferEncoding): this {
+    return this;
+  }
+
+  write(data: string, callback?: (error?: Error) => void): boolean {
+    this.buffer += data;
+    while (true) {
+      const newline = this.buffer.indexOf("\n");
+      if (newline < 0) break;
+      const line = this.buffer.slice(0, newline).trim();
+      this.buffer = this.buffer.slice(newline + 1);
+      if (line.length === 0) continue;
+      void this.handler(JSON.parse(line) as ClientEnvelope, this);
+    }
+    callback?.();
+    return true;
+  }
+
+  receiveFromServer(message: ServerMessage): void {
+    this.emit("data", `${JSON.stringify(message)}\n`);
+  }
+
+  receiveRaw(data: string): void {
+    this.emit("data", data);
+  }
+
+  destroy(): this {
+    if (!this.destroyed) {
+      this.destroyed = true;
+      this.emit("close");
+    }
+    return this;
+  }
+}

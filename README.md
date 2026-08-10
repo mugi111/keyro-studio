@@ -24,7 +24,9 @@ bun run check
 bun run dev
 ```
 
-Set `KEYRO_STUDIO_CORE_MODE=local-ipc` to exercise the future Core IPC adapter boundary. Until `@keyro/protocol` publishes generated TypeScript types, schemas, and test vectors, that mode intentionally reports Core as unavailable. The default mode is `mock`.
+Set `KEYRO_STUDIO_CORE_MODE=local-ipc` to connect Studio to a local Keyro Core IPC socket. The default socket path is `~/Library/Application Support/Keyro/Core/keyro-core-dev.sock`; set `KEYRO_STUDIO_CORE_SOCKET=/path/to/keyro-core-dev.sock` to override it. The default mode is `mock`.
+
+The first IPC MVP supports profile listing, active profile switching, assignment saves, virtual control input, and Core action events. Profile creation, profile rename, assignment clearing, and authoritative device layout discovery remain blocked until Core protocol commands exist for those capabilities.
 
 Set `KEYRO_STUDIO_ACTION_EXECUTOR=os-open-url` to execute validated `open_url` actions through the OS default browser. The default action executor is `mock`, so simulator clicks do not open browser windows unless explicitly enabled.
 
@@ -34,7 +36,7 @@ Set `KEYRO_STUDIO_ACTION_EXECUTOR=os-open-url` to execute validated `open_url` a
 - Studio must consume a tagged protocol package version, not a moving `main` branch or copied Core-local files.
 - Domain and application models stay independent from protocol DTOs; conversion belongs in infrastructure adapters.
 - Core/Studio handshakes exchange component and protocol versions before normal requests.
-- Core/Studio connections reject different protocol majors. Minor additions within the same major are intended to remain backward compatible; removals, type changes, and semantic changes require a new major.
+- Core/Studio protocol `0.x` requires an exact `{major, minor}` match during handshake. Later stable protocol versions can loosen compatibility only after the shared contract defines that policy.
 
 ## Security Notes
 
