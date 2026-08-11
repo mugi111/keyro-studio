@@ -1,15 +1,15 @@
 import { createConnection, type Socket } from "node:net";
-import { defaultDeviceLayout, type DeviceLayout } from "../../shared/device-layout";
+import { defaultDeviceLayout, validateDeviceLayout, type DeviceLayout } from "../../shared/device-layout";
 import { err, ok, type Result } from "../../shared/result";
 import {
   cloneSnapshot,
-  createEmptyProfile,
+  createEmptyPage,
   validatePageConfig,
   type PageConfig,
   type Profile,
   type StudioSnapshot
 } from "../../domain/profile";
-import type { Action } from "../../domain/action";
+import { createOpenUrlAction, type Action } from "../../domain/action";
 import type { ActionExecutionStatus, ActionExecutionTarget } from "../../application/ports/action-executor-port";
 import type { ConnectionStatus, CoreEvent, CorePort, Unsubscribe, VirtualInput } from "../../application/ports/core-port";
 import {
@@ -23,11 +23,13 @@ import {
   type ClientEnvelope,
   type ClientMessage,
   type ControlDto,
+  type DeviceLayoutDto,
   type ErrorCode,
   type ErrorMessage,
-  type ProfilesMessage,
   type ProtocolVersion,
-  type ServerMessage
+  type ServerMessage,
+  type SnapshotAssignmentDto,
+  type SnapshotMessage
 } from "./core-protocol";
 
 export type LocalIpcCoreAdapterOptions = {
@@ -62,13 +64,12 @@ export class LocalIpcCoreAdapter implements CorePort {
   private readonly listeners = new Set<(event: CoreEvent) => void>();
   private readonly pending = new Map<string, PendingRequest>();
   private readonly executionTargets = new Map<string, ActionExecutionTarget>();
-  private readonly pageCache = new Map<string, PageConfig[]>();
-  private readonly layout: DeviceLayout;
+  private readonly fallbackLayout: DeviceLayout;
   private buffer = "";
   private requestSequence = 0;
 
   constructor(private readonly options: LocalIpcCoreAdapterOptions = {}) {
-    this.layout = options.layout ?? defaultDeviceLayout;
+    this.fallbackLayout = options.layout ?? defaultDeviceLayout;
   }
 
   subscribe(listener: (event: CoreEvent) => void): Unsubscribe {
@@ -82,17 +83,16 @@ export class LocalIpcCoreAdapter implements CorePort {
   }
 
   async getSnapshot(): Promise<Result<StudioSnapshot>> {
-    const response = await this.sendRequest({ type: "list_profiles" });
-    if (!response.ok) return response;
-    if (response.value.type !== "profiles") return err("core_unavailable", "Core returned an unexpected response.");
-
-    const snapshot = this.snapshotFromProfiles(response.value);
-    this.emit({ type: "snapshot", snapshot });
-    return ok(cloneSnapshot(snapshot));
+    const snapshot = await this.readSnapshot();
+    if (!snapshot.ok) return snapshot;
+    this.emit({ type: "snapshot", snapshot: cloneSnapshot(snapshot.value) });
+    return ok(cloneSnapshot(snapshot.value));
   }
 
   async getDeviceLayout(): Promise<Result<DeviceLayout>> {
-    return ok(this.layout);
+    const snapshot = await this.getSnapshot();
+    if (!snapshot.ok) return snapshot;
+    return ok(snapshot.value.layout);
   }
 
   async createProfile(_name: string): Promise<Result<Profile>> {
@@ -111,12 +111,16 @@ export class LocalIpcCoreAdapter implements CorePort {
   }
 
   async savePage(profileId: string, page: PageConfig): Promise<Result<StudioSnapshot>> {
-    const validated = validatePageConfig(page, this.layout);
+    const refreshed = await this.readSnapshot();
+    if (!refreshed.ok) return refreshed;
+    const snapshot = refreshed.value;
+    const layout = snapshot?.layout ?? this.fallbackLayout;
+    const validated = validatePageConfig(page, layout);
     if (!validated.ok) return validated;
 
-    const previousPage =
-      this.pageCache.get(profileId)?.[page.index] ??
-      createEmptyProfile(profileId, "Cached", this.layout).pages[page.index]!;
+    const previousPage = snapshot?.profiles.find((profile) => profile.id === profileId)?.pages[page.index];
+    if (!previousPage) return err("validation_error", "Profile page was not found in the latest Core snapshot.");
+
     const changes = changedActionsFromPage(profileId, previousPage, page);
     if (changes.some((change) => change.action === null)) {
       return err("unsupported_operation", "Core assignment clearing is not available over IPC yet.");
@@ -135,9 +139,6 @@ export class LocalIpcCoreAdapter implements CorePort {
       if (saved.value.type !== "acknowledged") return err("core_unavailable", "Core returned an unexpected response.");
     }
 
-    const pages = this.pageCache.get(profileId) ?? createEmptyProfile(profileId, "Cached", this.layout).pages;
-    pages[page.index] = structuredClone(page);
-    this.pageCache.set(profileId, pages);
     return this.getSnapshot();
   }
 
@@ -302,9 +303,9 @@ export class LocalIpcCoreAdapter implements CorePort {
     const requestId = "request_id" in message ? message.request_id : null;
     if (typeof requestId !== "string") return;
     const pending = this.pending.get(requestId);
-	    if (!pending) return;
-	    this.pending.delete(requestId);
-	    pending.resolve(message);
+    if (!pending) return;
+    this.pending.delete(requestId);
+    pending.resolve(message);
   }
 
   private handleActionEvent(event: ActionEventDto): void {
@@ -325,26 +326,6 @@ export class LocalIpcCoreAdapter implements CorePort {
     this.emit({ type: "action", status: { state: "failure", target, code: event.code, message: event.message } });
   }
 
-  private snapshotFromProfiles(message: ProfilesMessage): StudioSnapshot {
-    const profiles = message.profiles.map((profile) => {
-      const pages =
-        this.pageCache.get(profile.id) ??
-        createEmptyProfile(profile.id, profile.name, this.layout, profile.is_active).pages;
-      this.pageCache.set(profile.id, pages);
-      return {
-        id: profile.id,
-        name: profile.name,
-        active: profile.is_active,
-        pages: structuredClone(pages)
-      };
-    });
-    return {
-      layout: this.layout,
-      profiles,
-      activeProfileId: profiles.find((profile) => profile.active)?.id ?? null
-    };
-  }
-
   private nextRequestId(): string {
     this.requestSequence += 1;
     return `studio-${this.requestSequence}`;
@@ -356,6 +337,13 @@ export class LocalIpcCoreAdapter implements CorePort {
 
   private createSocket(): LocalIpcSocket {
     return this.options.connect?.(this.socketPath()) ?? createConnection({ path: this.socketPath() });
+  }
+
+  private async readSnapshot(): Promise<Result<StudioSnapshot>> {
+    const response = await this.sendRequest({ type: "get_snapshot" });
+    if (!response.ok) return response;
+    if (response.value.type !== "snapshot") return err("core_unavailable", "Core returned an unexpected response.");
+    return snapshotFromMessage(response.value);
   }
 
   private closeSocket(reason: string): void {
@@ -382,6 +370,84 @@ export class LocalIpcCoreAdapter implements CorePort {
   private emit(event: CoreEvent): void {
     for (const listener of this.listeners) listener(event);
   }
+}
+
+function snapshotFromMessage(message: SnapshotMessage): Result<StudioSnapshot> {
+  const layout = deviceLayoutFromDto(message.layout);
+  if (!layout.ok) return layout;
+
+  const profiles = message.profiles.map((profile) => ({
+    id: profile.id,
+    name: profile.name,
+    active: profile.is_active,
+    pages: Array.from({ length: layout.value.pageCount }, (_, pageIndex) => createEmptyPage(pageIndex, layout.value))
+  }));
+  const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
+  const assignedControls = new Set<string>();
+
+  for (const assignment of message.assignments) {
+    const assignmentKey = `${assignment.profile_id}:${controlKey(assignment.control)}`;
+    if (assignedControls.has(assignmentKey)) {
+      return err("validation_error", "Snapshot contains duplicate assignments for a control.");
+    }
+    assignedControls.add(assignmentKey);
+    const assigned = applySnapshotAssignment(profilesById, assignment);
+    if (!assigned.ok) return assigned;
+  }
+
+  return ok({
+    layout: layout.value,
+    profiles,
+    activeProfileId: profiles.find((profile) => profile.active)?.id ?? null
+  });
+}
+
+function controlKey(control: ControlDto): string {
+  if (control.kind === "key") return `key:${control.page}:${control.key}`;
+  return `encoder:${control.page}:${control.encoder}:${control.operation}`;
+}
+
+function deviceLayoutFromDto(layout: DeviceLayoutDto): Result<DeviceLayout> {
+  return validateDeviceLayout({
+    pageCount: layout.page_count,
+    keyRows: layout.key_rows,
+    keyColumns: layout.key_columns,
+    encoderCount: layout.encoder_count
+  });
+}
+
+function applySnapshotAssignment(
+  profilesById: Map<string, Profile>,
+  assignment: SnapshotAssignmentDto
+): Result<void> {
+  const profile = profilesById.get(assignment.profile_id);
+  if (!profile) return err("validation_error", "Snapshot assignment references an unknown profile.");
+  const page = profile.pages[assignment.control.page];
+  if (!page) return err("validation_error", "Snapshot assignment page is outside the device layout.");
+
+  const firstAction = assignment.actions[0];
+  if (!firstAction) return ok(undefined);
+  if (assignment.actions.length > 1) {
+    return err("unsupported_operation", "Core snapshot assignments with multiple actions are not supported by Studio yet.");
+  }
+
+  const action = createOpenUrlAction(firstAction.url);
+  if (!action.ok) return action;
+  return assignSnapshotAction(page, assignment.control, action.value);
+}
+
+function assignSnapshotAction(page: PageConfig, control: ControlDto, action: Action): Result<void> {
+  if (control.kind === "key") {
+    const key = page.keys[control.key];
+    if (!key) return err("validation_error", "Snapshot key assignment is outside the device layout.");
+    key.action = action;
+    return ok(undefined);
+  }
+
+  const encoder = page.encoders[control.encoder];
+  if (!encoder) return err("validation_error", "Snapshot encoder assignment is outside the device layout.");
+  encoder[encoderInteractionFromOperation(control.operation)] = action;
+  return ok(undefined);
 }
 
 type ActionChange = {
@@ -497,6 +563,19 @@ function decodeServerMessage(line: string): ServerMessage | null {
       }
       return null;
 
+    case "snapshot":
+      if (
+        typeof input.request_id === "string" &&
+        isDeviceLayoutDto(input.layout) &&
+        Array.isArray(input.profiles) &&
+        input.profiles.every(isProfileDto) &&
+        Array.isArray(input.assignments) &&
+        input.assignments.every(isSnapshotAssignmentDto)
+      ) {
+        return input as unknown as ServerMessage;
+      }
+      return null;
+
     case "acknowledged":
       return typeof input.request_id === "string" ? (input as unknown as ServerMessage) : null;
 
@@ -529,6 +608,30 @@ function isProfileDto(input: unknown): boolean {
     typeof input.name === "string" &&
     typeof input.is_active === "boolean"
   );
+}
+
+function isDeviceLayoutDto(input: unknown): input is DeviceLayoutDto {
+  return (
+    isRecord(input) &&
+    Number.isInteger(input.page_count) &&
+    Number.isInteger(input.key_rows) &&
+    Number.isInteger(input.key_columns) &&
+    Number.isInteger(input.encoder_count)
+  );
+}
+
+function isSnapshotAssignmentDto(input: unknown): input is SnapshotAssignmentDto {
+  return (
+    isRecord(input) &&
+    typeof input.profile_id === "string" &&
+    isControlDto(input.control) &&
+    Array.isArray(input.actions) &&
+    input.actions.every(isActionDto)
+  );
+}
+
+function isActionDto(input: unknown): boolean {
+  return isRecord(input) && input.kind === "open_url" && typeof input.url === "string";
 }
 
 function isActionEventDto(input: unknown): input is ActionEventDto {
