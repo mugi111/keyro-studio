@@ -8,6 +8,7 @@ import {
   encoderInteractionFromOperation,
   keyroProtocolVersion,
   profileToDto,
+  snapshotToMessage,
   type AssignmentDto,
   type ClientEnvelope,
   type ClientMessage,
@@ -69,6 +70,12 @@ export async function handleCoreProtocolMessage(
         request_id: requestId,
         profiles: snapshot.value.profiles.map(profileToDto)
       };
+    }
+
+    case "get_snapshot": {
+      const snapshot = await service.getSnapshot();
+      if (!snapshot.ok) return errorFromResult(requestId, snapshot);
+      return snapshotToMessage(requestId, snapshot.value);
     }
 
     case "set_active_profile": {
@@ -254,6 +261,9 @@ function decodeClientMessage(message: Record<string, unknown>): MessageDecodeRes
 
     case "list_profiles":
       return { ok: true, value: { type: "list_profiles" } };
+
+    case "get_snapshot":
+      return { ok: true, value: { type: "get_snapshot" } };
 
     case "set_active_profile":
       if (typeof message.profile_id !== "string" || message.profile_id.length === 0) {

@@ -26,7 +26,7 @@ bun run dev
 
 Set `KEYRO_STUDIO_CORE_MODE=local-ipc` to connect Studio to a local Keyro Core IPC socket. The default socket path is `~/Library/Application Support/Keyro/Core/keyro-core-dev.sock`; set `KEYRO_STUDIO_CORE_SOCKET=/path/to/keyro-core-dev.sock` to override it. The default mode is `mock`.
 
-The first IPC MVP supports profile listing, active profile switching, assignment saves, virtual control input, and Core action events. Profile creation, profile rename, assignment clearing, and authoritative device layout discovery remain blocked until Core protocol commands exist for those capabilities.
+The local IPC adapter uses the Core protocol v0.2 snapshot as Studio's authoritative source for device layout, profiles, and assignments. It supports active profile switching, single-assignment saves, virtual control input, and Core action events. Profile creation, profile rename, and assignment clearing remain blocked until Core protocol commands exist for those capabilities.
 
 Set `KEYRO_STUDIO_ACTION_EXECUTOR=os-open-url` to execute validated `open_url` actions through the OS default browser. The default action executor is `mock`, so simulator clicks do not open browser windows unless explicitly enabled.
 

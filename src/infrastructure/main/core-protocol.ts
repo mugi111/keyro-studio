@@ -1,9 +1,9 @@
 import type { Action } from "../../domain/action";
-import type { Profile } from "../../domain/profile";
+import type { Profile, StudioSnapshot } from "../../domain/profile";
 import type { ActionExecutionStatus, ActionExecutionTarget } from "../../application/ports/action-executor-port";
 import type { VirtualInput } from "../../application/ports/core-port";
 
-export const KEYRO_PROTOCOL_VERSION = "0.1.0" as const;
+export const KEYRO_PROTOCOL_VERSION = "0.2.0" as const;
 
 export interface ProtocolVersion {
   major: number;
@@ -12,7 +12,7 @@ export interface ProtocolVersion {
 
 export const keyroProtocolVersion: ProtocolVersion = {
   major: 0,
-  minor: 1
+  minor: 2
 };
 
 export interface ClientEnvelope {
@@ -22,6 +22,7 @@ export interface ClientEnvelope {
 
 export type ClientMessage =
   | HandshakeMessage
+  | GetSnapshotMessage
   | ListProfilesMessage
   | SetActiveProfileMessage
   | SaveAssignmentMessage
@@ -32,6 +33,10 @@ export interface HandshakeMessage {
   component: "studio";
   component_version: string;
   protocol: ProtocolVersion;
+}
+
+export interface GetSnapshotMessage {
+  type: "get_snapshot";
 }
 
 export interface ListProfilesMessage {
@@ -77,6 +82,7 @@ export type ActionDto = {
 
 export type ServerMessage =
   | HandshakeAcceptedMessage
+  | SnapshotMessage
   | ProfilesMessage
   | AcknowledgedMessage
   | ActionEventMessage
@@ -87,6 +93,27 @@ export interface HandshakeAcceptedMessage {
   request_id: string;
   core_version: string;
   protocol: ProtocolVersion;
+}
+
+export interface SnapshotMessage {
+  type: "snapshot";
+  request_id: string;
+  layout: DeviceLayoutDto;
+  profiles: ProfileDto[];
+  assignments: SnapshotAssignmentDto[];
+}
+
+export interface DeviceLayoutDto {
+  page_count: number;
+  key_rows: number;
+  key_columns: number;
+  encoder_count: number;
+}
+
+export interface SnapshotAssignmentDto {
+  profile_id: string;
+  control: ControlDto;
+  actions: ActionDto[];
 }
 
 export interface ProfilesMessage {
@@ -174,6 +201,66 @@ export function profilesToMessage(requestId: string, profiles: Profile[]): Profi
     request_id: requestId,
     profiles: profiles.map(profileToDto)
   };
+}
+
+export function snapshotToMessage(requestId: string, snapshot: StudioSnapshot): SnapshotMessage {
+  return {
+    type: "snapshot",
+    request_id: requestId,
+    layout: {
+      page_count: snapshot.layout.pageCount,
+      key_rows: snapshot.layout.keyRows,
+      key_columns: snapshot.layout.keyColumns,
+      encoder_count: snapshot.layout.encoderCount
+    },
+    profiles: snapshot.profiles.map(profileToDto),
+    assignments: snapshot.profiles.flatMap((profile) =>
+      profile.pages.flatMap((page) => [
+        ...page.keys.flatMap((key) =>
+          key.action
+            ? [
+                {
+                  profile_id: profile.id,
+                  control: { kind: "key" as const, page: page.index, key: key.index },
+                  actions: [actionDtoFromAction(key.action)]
+                }
+              ]
+            : []
+        ),
+        ...page.encoders.flatMap((encoder) =>
+          encoderAssignmentsFromActions(profile.id, page.index, encoder.index, [
+            ["left", encoder.rotateLeft],
+            ["right", encoder.rotateRight],
+            ["press", encoder.press]
+          ])
+        )
+      ])
+    )
+  };
+}
+
+function encoderAssignmentsFromActions(
+  profileId: string,
+  pageIndex: number,
+  encoderIndex: number,
+  entries: Array<[EncoderOperationDto, Action | null]>
+): SnapshotAssignmentDto[] {
+  return entries.flatMap(([operation, action]) =>
+    action
+      ? [
+          {
+            profile_id: profileId,
+            control: {
+              kind: "encoder" as const,
+              page: pageIndex,
+              encoder: encoderIndex,
+              operation
+            },
+            actions: [actionDtoFromAction(action)]
+          }
+        ]
+      : []
+  );
 }
 
 export function controlDtoFromVirtualInput(input: VirtualInput): ControlDto {

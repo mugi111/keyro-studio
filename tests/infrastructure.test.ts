@@ -104,23 +104,23 @@ describe("core adapter factory", () => {
 
   test("keeps protocol package readiness in the main adapter boundary", () => {
     expect(protocolPackageName).toBe("@keyro/protocol");
-    expect(plannedCoreStudioProtocolTag).toBe("v0.1.0");
-    expect(protocolPackageUnavailableReason()).toContain("@keyro/protocol v0.1.0");
+    expect(plannedCoreStudioProtocolTag).toBe("v0.2.0");
+    expect(protocolPackageUnavailableReason()).toContain("@keyro/protocol v0.2.0");
     expect(protocolPackageUnavailableReason()).toContain("temporary TypeScript contract");
   });
 });
 
-describe("temporary Core protocol v0.1.0", () => {
+describe("temporary Core protocol v0.2.0", () => {
   test("keeps versioned DTO helpers in the infrastructure boundary", () => {
-    expect(KEYRO_PROTOCOL_VERSION).toBe("0.1.0");
-    expect(keyroProtocolVersion).toEqual({ major: 0, minor: 1 });
+    expect(KEYRO_PROTOCOL_VERSION).toBe("0.2.0");
+    expect(keyroProtocolVersion).toEqual({ major: 0, minor: 2 });
     expect(handshakeEnvelope("request-1", "0.0.0")).toEqual({
       request_id: "request-1",
       message: {
         type: "handshake",
         component: "studio",
         component_version: "0.0.0",
-        protocol: { major: 0, minor: 1 }
+        protocol: { major: 0, minor: 2 }
       }
     });
   });
@@ -163,8 +163,24 @@ describe("temporary Core protocol v0.1.0", () => {
       type: "handshake_accepted",
       request_id: "request-handshake",
       core_version: "core-mock",
-      protocol: { major: 0, minor: 1 }
+      protocol: { major: 0, minor: 2 }
     });
+
+    const snapshot = await handleCoreProtocolEnvelope(
+      service,
+      createClientEnvelope("request-snapshot", { type: "get_snapshot" }),
+      {
+        coreVersion: "core-mock"
+      }
+    );
+
+    expect(snapshot).toMatchObject({
+      type: "snapshot",
+      request_id: "request-snapshot",
+      layout: { page_count: 4, key_rows: 3, key_columns: 4, encoder_count: 2 },
+      profiles: [{ id: "profile-default", name: "Default", is_active: true }]
+    });
+    expect(snapshot.type === "snapshot" ? snapshot.assignments : []).toEqual([]);
 
     const profiles = await handleCoreProtocolEnvelope(
       service,
@@ -216,7 +232,7 @@ describe("temporary Core protocol v0.1.0", () => {
         type: "handshake",
         component: "studio",
         component_version: "0.0.0",
-        protocol: { major: 0, minor: 2 }
+        protocol: { major: 0, minor: 3 }
       }),
       {
         coreVersion: "core-mock"
@@ -241,14 +257,15 @@ describe("temporary Core protocol v0.1.0", () => {
         service,
         {
           request_id: "request-wire-list",
-          message: { type: "list_profiles" }
+          message: { type: "get_snapshot" }
         },
         { coreVersion: "core-mock" }
       )
-    ).resolves.toEqual({
-      type: "profiles",
+    ).resolves.toMatchObject({
+      type: "snapshot",
       request_id: "request-wire-list",
-      profiles: [{ id: "profile-default", name: "Default", is_active: true }]
+      profiles: [{ id: "profile-default", name: "Default", is_active: true }],
+      assignments: []
     });
 
     await expect(
@@ -352,27 +369,43 @@ describe("temporary Core protocol v0.1.0", () => {
 });
 
 describe("local IPC Core adapter", () => {
-  test("handshakes, lists profiles, saves assignments, activates profiles, and maps action events from Core", async () => {
+  test("handshakes, reads snapshots, saves assignments, activates profiles, and maps action events from Core", async () => {
     let activeProfileId = "profile-core";
-    const assignments: unknown[] = [];
+    const assignments: Array<{
+      profile_id: string;
+      control: { kind: "key"; page: number; key: number } | { kind: "encoder"; page: number; encoder: number; operation: "left" | "right" | "press" };
+      action: { kind: "open_url"; url: string };
+    }> = [
+      {
+        profile_id: "profile-core",
+        control: { kind: "encoder", page: 0, encoder: 0, operation: "left" },
+        action: { kind: "open_url", url: "https://example.com/left" }
+      }
+    ];
     const server = await createFakeCoreServer(async (envelope, socket) => {
       if (envelope.message.type === "handshake") {
         writeServerMessage(socket, {
           type: "handshake_accepted",
           request_id: envelope.request_id,
-          core_version: "0.1.0",
+          core_version: "0.2.0",
           protocol: keyroProtocolVersion
         });
         return;
       }
-      if (envelope.message.type === "list_profiles") {
+      if (envelope.message.type === "get_snapshot") {
         writeServerMessage(socket, {
-          type: "profiles",
+          type: "snapshot",
           request_id: envelope.request_id,
+          layout: { page_count: 2, key_rows: 2, key_columns: 3, encoder_count: 1 },
           profiles: [
-            { id: "profile-core", name: "Core Default", is_active: activeProfileId === "profile-core" },
+            { id: "profile-core", name: "  Core Default  ", is_active: activeProfileId === "profile-core" },
             { id: "profile-second", name: "Second", is_active: activeProfileId === "profile-second" }
-          ]
+          ],
+          assignments: assignments.map((assignment) => ({
+            profile_id: assignment.profile_id,
+            control: assignment.control,
+            actions: [assignment.action]
+          }))
         });
         return;
       }
@@ -422,7 +455,12 @@ describe("local IPC Core adapter", () => {
     const snapshot = await adapter.getSnapshot();
     expect(snapshot.ok).toBe(true);
     if (snapshot.ok) {
-      expect(snapshot.value.profiles[0]?.name).toBe("Core Default");
+      expect(snapshot.value.layout).toEqual({ pageCount: 2, keyRows: 2, keyColumns: 3, encoderCount: 1 });
+      expect(snapshot.value.profiles[0]?.name).toBe("  Core Default  ");
+      expect(snapshot.value.profiles[0]?.pages[0]?.encoders[0]?.rotateLeft).toEqual({
+        kind: "open_url",
+        url: "https://example.com/left"
+      });
     }
 
     const activated = await adapter.activateProfile("profile-second");
@@ -456,7 +494,7 @@ describe("local IPC Core adapter", () => {
       control: { kind: "key", page: 0, key: 0 },
       action: { kind: "open_url", url: "https://example.com/" }
     });
-    expect(assignments).toHaveLength(1);
+    expect(assignments).toHaveLength(2);
 
     const result = await adapter.sendVirtualInput({
       type: "key",
@@ -503,7 +541,7 @@ describe("local IPC Core adapter", () => {
           type: "handshake_accepted",
           request_id: envelope.request_id,
           core_version: "0.1.0",
-          protocol: { major: 0, minor: 2 }
+          protocol: { major: 0, minor: 1 }
         });
       }
     });
@@ -523,13 +561,21 @@ describe("local IPC Core adapter", () => {
         writeServerMessage(socket, {
           type: "handshake_accepted",
           request_id: envelope.request_id,
-          core_version: "0.1.0",
+          core_version: "0.2.0",
           protocol: keyroProtocolVersion
         });
         return;
       }
-      if (envelope.message.type === "list_profiles") {
-        socket.receiveRaw(`${JSON.stringify({ type: "profiles", request_id: envelope.request_id, profiles: [{ id: 1 }] })}\n`);
+      if (envelope.message.type === "get_snapshot") {
+        socket.receiveRaw(
+          `${JSON.stringify({
+            type: "snapshot",
+            request_id: envelope.request_id,
+            layout: { page_count: 1, key_rows: 1, key_columns: 1, encoder_count: 1 },
+            profiles: [{ id: 1 }],
+            assignments: []
+          })}\n`
+        );
       }
     });
     const adapter = new LocalIpcCoreAdapter({ socketPath: server.socketPath, connect: server.connect });
@@ -538,6 +584,49 @@ describe("local IPC Core adapter", () => {
 
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.message).toContain("Could not communicate with Keyro Core.");
+    await adapter.close();
+    await server.close();
+  });
+
+  test("rejects Core snapshots with multi-action assignments until Studio can preserve them", async () => {
+    const server = await createFakeCoreServer((envelope, socket) => {
+      if (envelope.message.type === "handshake") {
+        writeServerMessage(socket, {
+          type: "handshake_accepted",
+          request_id: envelope.request_id,
+          core_version: "0.2.0",
+          protocol: keyroProtocolVersion
+        });
+        return;
+      }
+      if (envelope.message.type === "get_snapshot") {
+        writeServerMessage(socket, {
+          type: "snapshot",
+          request_id: envelope.request_id,
+          layout: { page_count: 1, key_rows: 1, key_columns: 1, encoder_count: 1 },
+          profiles: [{ id: "profile-core", name: "Core Default", is_active: true }],
+          assignments: [
+            {
+              profile_id: "profile-core",
+              control: { kind: "key", page: 0, key: 0 },
+              actions: [
+                { kind: "open_url", url: "https://example.com/first" },
+                { kind: "open_url", url: "https://example.com/second" }
+              ]
+            }
+          ]
+        });
+      }
+    });
+    const adapter = new LocalIpcCoreAdapter({ socketPath: server.socketPath, connect: server.connect });
+
+    const result = await adapter.getSnapshot();
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("unsupported_operation");
+      expect(result.error.message).toContain("multiple actions");
+    }
     await adapter.close();
     await server.close();
   });
