@@ -4,6 +4,7 @@
   "workspaces": {
     "": {
       "dependencies": {
+        "@keyro/protocol": "file:/Users/mugi111/Documents/code/keyro-core/protocol/keyro-protocol-0.2.0.tgz",
         "electrobun": "^1.18.1",
         "typescript": "^7.0.2",
       },
@@ -11,6 +12,8 @@
   },
   "packages": {
     "@babylonjs/core": ["@babylonjs/core@7.54.3", "", {}, "sha512-P5ncXVd8GEUJLhwloP9V0oVwQYIrvZztguVeLlvd5Rx+9aQnenKjpV8auJ6SRsUlAmNZU4pFTKzwF6o2EUfhAw=="],
+
+    "@keyro/protocol": ["@keyro/protocol@/Users/mugi111/Documents/code/keyro-core/protocol/keyro-protocol-0.2.0.tgz", {}, "sha512-SQ5x/Ma0JbDyagks86vaUYI56VjoolKHoDu8hEy/55TyrZxp6gqL2zR9JdScfb1aaK1+y0t0HrWqIUtbjmyBPQ=="],
 
     "@malept/cross-spawn-promise": ["@malept/cross-spawn-promise@1.1.1", "", { "dependencies": { "cross-spawn": "^7.0.1" } }, "sha512-RTBGWL5FWQcg9orDOCcp4LvItNzUPcyEU9bwaeJX0rJ1IQxzucC48Y0/sQLp/g6t99IQgAlGIaesJS+gTn7tVQ=="],
 
