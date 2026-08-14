@@ -78,6 +78,26 @@ export async function handleCoreProtocolMessage(
       return snapshotToMessage(requestId, snapshot.value);
     }
 
+    case "create_profile": {
+      const created = await service.createProfile(message.name);
+      if (!created.ok) return errorFromResult(requestId, created);
+      return {
+        type: "profile",
+        request_id: requestId,
+        profile: profileToDto(created.value)
+      };
+    }
+
+    case "rename_profile": {
+      const renamed = await service.renameProfile(message.profile_id, message.name);
+      if (!renamed.ok) return errorFromResult(requestId, renamed);
+      return {
+        type: "profile",
+        request_id: requestId,
+        profile: profileToDto(renamed.value)
+      };
+    }
+
     case "set_active_profile": {
       const activated = await service.activateProfile(message.profile_id);
       if (!activated.ok) return errorFromResult(requestId, activated);
@@ -86,6 +106,9 @@ export async function handleCoreProtocolMessage(
 
     case "save_assignment":
       return saveAssignment(service, requestId, message.assignment);
+
+    case "clear_assignment":
+      return clearAssignment(service, requestId, message.profile_id, message.control);
 
     case "virtual_control_input": {
       const snapshot = await service.getSnapshot();
@@ -144,6 +167,30 @@ async function saveAssignment(
   return acknowledged(requestId);
 }
 
+async function clearAssignment(
+  service: StudioService,
+  requestId: string,
+  profileId: string,
+  control: ControlDto
+): Promise<ServerMessage> {
+  const snapshot = await service.getSnapshot();
+  if (!snapshot.ok) return errorFromResult(requestId, snapshot);
+
+  const profile = snapshot.value.profiles.find((candidate) => candidate.id === profileId);
+  if (!profile) return errorMessage(requestId, "not_found", "Profile was not found.");
+
+  const page = profile.pages[control.page];
+  if (!page) return errorMessage(requestId, "validation_failed", "Page is outside the device layout.");
+
+  const nextPage = structuredClone(page);
+  const cleared = clearAction(nextPage, control);
+  if (!cleared.ok) return errorFromResult(requestId, cleared);
+
+  const saved = await service.savePage(profileId, nextPage);
+  if (!saved.ok) return errorFromResult(requestId, saved);
+  return acknowledged(requestId);
+}
+
 function assignAction(page: PageConfig, control: ControlDto, action: AssignmentDto["action"]): Result<PageConfig> {
   if (control.kind === "key") {
     const key = page.keys[control.key];
@@ -165,6 +212,30 @@ function assignAction(page: PageConfig, control: ControlDto, action: AssignmentD
     };
   }
   encoder[encoderInteractionFromOperation(control.operation)] = action;
+  return { ok: true, value: page };
+}
+
+function clearAction(page: PageConfig, control: ControlDto): Result<PageConfig> {
+  if (control.kind === "key") {
+    const key = page.keys[control.key];
+    if (!key) {
+      return {
+        ok: false,
+        error: { code: "validation_error", message: "Key is outside the device layout." }
+      };
+    }
+    key.action = null;
+    return { ok: true, value: page };
+  }
+
+  const encoder = page.encoders[control.encoder];
+  if (!encoder) {
+    return {
+      ok: false,
+      error: { code: "validation_error", message: "Encoder is outside the device layout." }
+    };
+  }
+  encoder[encoderInteractionFromOperation(control.operation)] = null;
   return { ok: true, value: page };
 }
 
@@ -209,7 +280,8 @@ function errorMessage(requestId: string | null, code: ErrorCode, message: string
 }
 
 function errorCodeFromAppCode(code: string): ErrorCode {
-  if (code === "validation_error" || code === "invalid_url" || code === "not_found") return "validation_failed";
+  if (code === "not_found") return "not_found";
+  if (code === "validation_error" || code === "invalid_url") return "validation_failed";
   return "internal";
 }
 
@@ -249,13 +321,16 @@ function decodeClientMessage(message: Record<string, unknown>): MessageDecodeRes
       ) {
         return invalidMessage("Handshake message is malformed.");
       }
+      if (!isCompatibleProtocol(message.protocol)) {
+        return { ok: false, requestId: "", code: "incompatible_protocol", message: "Keyro Studio and Core protocol versions are incompatible." };
+      }
       return {
         ok: true,
         value: {
           type: "handshake",
           component: "studio",
           component_version: message.component_version,
-          protocol: message.protocol
+          protocol: keyroProtocolVersion
         }
       };
 
@@ -264,6 +339,21 @@ function decodeClientMessage(message: Record<string, unknown>): MessageDecodeRes
 
     case "get_snapshot":
       return { ok: true, value: { type: "get_snapshot" } };
+
+    case "create_profile":
+      if (typeof message.name !== "string") {
+        return invalidMessage("create_profile name is required.");
+      }
+      return { ok: true, value: { type: "create_profile", name: message.name } };
+
+    case "rename_profile":
+      if (typeof message.profile_id !== "string" || message.profile_id.length === 0) {
+        return invalidMessage("rename_profile profile_id is required.");
+      }
+      if (typeof message.name !== "string") {
+        return invalidMessage("rename_profile name is required.");
+      }
+      return { ok: true, value: { type: "rename_profile", profile_id: message.profile_id, name: message.name } };
 
     case "set_active_profile":
       if (typeof message.profile_id !== "string" || message.profile_id.length === 0) {
@@ -274,6 +364,13 @@ function decodeClientMessage(message: Record<string, unknown>): MessageDecodeRes
     case "save_assignment":
       if (!isAssignmentDto(message.assignment)) return invalidMessage("save_assignment assignment is malformed.");
       return { ok: true, value: { type: "save_assignment", assignment: message.assignment } };
+
+    case "clear_assignment":
+      if (typeof message.profile_id !== "string" || message.profile_id.length === 0) {
+        return invalidMessage("clear_assignment profile_id is required.");
+      }
+      if (!isControlDto(message.control)) return invalidMessage("clear_assignment control is malformed.");
+      return { ok: true, value: { type: "clear_assignment", profile_id: message.profile_id, control: message.control } };
 
     case "virtual_control_input":
       if (!isControlDto(message.control)) return invalidMessage("virtual_control_input control is malformed.");

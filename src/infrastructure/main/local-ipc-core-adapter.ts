@@ -14,6 +14,7 @@ import type { ActionExecutionStatus, ActionExecutionTarget } from "../../applica
 import type { ConnectionStatus, CoreEvent, CorePort, Unsubscribe, VirtualInput } from "../../application/ports/core-port";
 import {
   assignmentDtoFromAction,
+  controlDtoFromActionTarget,
   controlDtoFromVirtualInput,
   createClientEnvelope,
   createHandshakeMessage,
@@ -26,6 +27,7 @@ import {
   type DeviceLayoutDto,
   type ErrorCode,
   type ErrorMessage,
+  type ProfileDto,
   type ProtocolVersion,
   type ServerMessage,
   type SnapshotAssignmentDto,
@@ -95,12 +97,18 @@ export class LocalIpcCoreAdapter implements CorePort {
     return ok(snapshot.value.layout);
   }
 
-  async createProfile(_name: string): Promise<Result<Profile>> {
-    return err("unsupported_operation", "Core profile creation is not available over IPC yet.");
+  async createProfile(name: string): Promise<Result<Profile>> {
+    const created = await this.sendRequest({ type: "create_profile", name });
+    if (!created.ok) return created;
+    if (created.value.type !== "profile") return err("core_unavailable", "Core returned an unexpected response.");
+    return this.profileFromRefreshedSnapshot(created.value.profile);
   }
 
-  async renameProfile(_profileId: string, _name: string): Promise<Result<Profile>> {
-    return err("unsupported_operation", "Core profile rename is not available over IPC yet.");
+  async renameProfile(profileId: string, name: string): Promise<Result<Profile>> {
+    const renamed = await this.sendRequest({ type: "rename_profile", profile_id: profileId, name });
+    if (!renamed.ok) return renamed;
+    if (renamed.value.type !== "profile") return err("core_unavailable", "Core returned an unexpected response.");
+    return this.profileFromRefreshedSnapshot(renamed.value.profile);
   }
 
   async activateProfile(profileId: string): Promise<Result<StudioSnapshot>> {
@@ -122,19 +130,21 @@ export class LocalIpcCoreAdapter implements CorePort {
     if (!previousPage) return err("validation_error", "Profile page was not found in the latest Core snapshot.");
 
     const changes = changedActionsFromPage(profileId, previousPage, page);
-    if (changes.some((change) => change.action === null)) {
-      return err("unsupported_operation", "Core assignment clearing is not available over IPC yet.");
-    }
     if (changes.length > 1) {
       return err("unsupported_operation", "Core IPC can save only one assignment change at a time.");
     }
 
     for (const { target, action } of changes) {
-      if (!action) continue;
-      const saved = await this.sendRequest({
-        type: "save_assignment",
-        assignment: assignmentDtoFromAction(profileId, target, action)
-      });
+      const saved = action
+        ? await this.sendRequest({
+            type: "save_assignment",
+            assignment: assignmentDtoFromAction(profileId, target, action)
+          })
+        : await this.sendRequest({
+            type: "clear_assignment",
+            profile_id: profileId,
+            control: controlDtoFromActionTarget(target)
+          });
       if (!saved.ok) return saved;
       if (saved.value.type !== "acknowledged") return err("core_unavailable", "Core returned an unexpected response.");
     }
@@ -346,6 +356,14 @@ export class LocalIpcCoreAdapter implements CorePort {
     return snapshotFromMessage(response.value);
   }
 
+  private async profileFromRefreshedSnapshot(profile: ProfileDto): Promise<Result<Profile>> {
+    const refreshed = await this.getSnapshot();
+    if (!refreshed.ok) return refreshed;
+    const currentProfile = refreshed.value.profiles.find((candidate) => candidate.id === profile.id);
+    if (!currentProfile) return err("validation_error", "Profile was not found in the latest Core snapshot.");
+    return ok(structuredClone(currentProfile));
+  }
+
   private closeSocket(reason: string): void {
     this.socket?.destroy();
     this.socket = null;
@@ -533,7 +551,10 @@ function encoderInteractionFromOperation(operation: "left" | "right" | "press") 
 }
 
 function errorFromServer(message: ErrorMessage): Result<never> {
-  const code = message.error.code === "validation_failed" ? "validation_error" : "core_unavailable";
+  const code =
+    message.error.code === "validation_failed" || message.error.code === "not_found"
+      ? "validation_error"
+      : "core_unavailable";
   return err(code, message.error.message);
 }
 
@@ -559,6 +580,12 @@ function decodeServerMessage(line: string): ServerMessage | null {
 
     case "profiles":
       if (typeof input.request_id === "string" && Array.isArray(input.profiles) && input.profiles.every(isProfileDto)) {
+        return input as unknown as ServerMessage;
+      }
+      return null;
+
+    case "profile":
+      if (typeof input.request_id === "string" && isProfileDto(input.profile)) {
         return input as unknown as ServerMessage;
       }
       return null;
@@ -666,6 +693,7 @@ function isErrorCode(input: unknown): input is ErrorCode {
     input === "incompatible_protocol" ||
     input === "unknown_message" ||
     input === "validation_failed" ||
+    input === "not_found" ||
     input === "internal"
   );
 }

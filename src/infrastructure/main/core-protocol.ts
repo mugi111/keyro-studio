@@ -1,7 +1,7 @@
 import {
   KEYRO_PROTOCOL_HANDSHAKE_VERSION,
   KEYRO_PROTOCOL_VERSION
-} from "@mugi111/keyro-protocol/core-studio/v0.2.0";
+} from "@mugi111/keyro-protocol/core-studio/v0.3.0";
 import type { Action } from "../../domain/action";
 import type { Profile, StudioSnapshot } from "../../domain/profile";
 import type { ActionExecutionStatus, ActionExecutionTarget } from "../../application/ports/action-executor-port";
@@ -18,14 +18,16 @@ import type {
   EncoderOperationDto,
   ErrorCode,
   ErrorMessage,
+  HandshakeProtocolVersion,
   HandshakeMessage,
   ProfileDto,
+  ProfileMessage,
   ProfilesMessage,
   ProtocolVersion,
   ServerMessage,
   SnapshotAssignmentDto,
   SnapshotMessage
-} from "@mugi111/keyro-protocol/core-studio/v0.2.0";
+} from "@mugi111/keyro-protocol/core-studio/v0.3.0";
 
 export { KEYRO_PROTOCOL_VERSION };
 export type {
@@ -40,8 +42,10 @@ export type {
   EncoderOperationDto,
   ErrorCode,
   ErrorMessage,
+  HandshakeProtocolVersion,
   HandshakeMessage,
   ProfileDto,
+  ProfileMessage,
   ProfilesMessage,
   ProtocolVersion,
   ServerMessage,
@@ -49,7 +53,7 @@ export type {
   SnapshotMessage
 };
 
-export const keyroProtocolVersion: ProtocolVersion = KEYRO_PROTOCOL_HANDSHAKE_VERSION;
+export const keyroProtocolVersion: HandshakeProtocolVersion = KEYRO_PROTOCOL_HANDSHAKE_VERSION;
 
 export function createHandshakeMessage(componentVersion: string): HandshakeMessage {
   return {

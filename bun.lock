@@ -4,7 +4,7 @@
   "workspaces": {
     "": {
       "dependencies": {
-        "@mugi111/keyro-protocol": "0.2.1",
+        "@mugi111/keyro-protocol": "0.3.0",
         "electrobun": "^1.18.1",
         "typescript": "^7.0.2",
       },
@@ -15,7 +15,7 @@
 
     "@malept/cross-spawn-promise": ["@malept/cross-spawn-promise@1.1.1", "", { "dependencies": { "cross-spawn": "^7.0.1" } }, "sha512-RTBGWL5FWQcg9orDOCcp4LvItNzUPcyEU9bwaeJX0rJ1IQxzucC48Y0/sQLp/g6t99IQgAlGIaesJS+gTn7tVQ=="],
 
-    "@mugi111/keyro-protocol": ["@mugi111/keyro-protocol@0.2.1", "", {}, "sha512-aT+OrubL+tJT8DBlymPO/We+RgivORNEqTvfojd5vT/ldeT7c6/sk4wV/aqMLq0bggRJBn0rWrnUlDvXiXogrQ=="],
+    "@mugi111/keyro-protocol": ["@mugi111/keyro-protocol@0.3.0", "", {}, "sha512-lu4NonCLIRm2N3hKPXYe1cixuO5npv/A3w3ptf+25p8aKNoJsAK9H/brellPUCeE46tjlAE+uopdxw2kZBLSXQ=="],
 
     "@tootallnate/quickjs-emscripten": ["@tootallnate/quickjs-emscripten@0.23.0", "", {}, "sha512-C5Mc6rdnsaJDjO3UpGW/CQTHtCKaYlScZTly4JIu97Jxo/odCiH0ITnDXSJPTOrEKk/ycSZ0AOgTmkDtkOsvIA=="],
 
