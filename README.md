@@ -1,6 +1,6 @@
 # Keyro Studio
 
-Keyro Studio is a desktop configuration app for Keyro Core. This repository currently implements the first MVP as an Electrobun + TypeScript app with a Mock Core Adapter while the external `@keyro/protocol` package is being split out as the Core/Studio/Device contract source of truth.
+Keyro Studio is a desktop configuration app for Keyro Core. This repository currently implements the first MVP as an Electrobun + TypeScript app with a Mock Core Adapter while the external `@mugi111/keyro-protocol` package is consumed as the Core/Studio/Device contract source of truth.
 
 ## Architecture
 
@@ -32,7 +32,7 @@ Set `KEYRO_STUDIO_ACTION_EXECUTOR=os-open-url` to execute validated `open_url` a
 
 ## Product Integration
 
-- `@keyro/protocol` is the only intended source of truth for Core/Studio/Device wire contracts.
+- `@mugi111/keyro-protocol` is the only intended source of truth for Core/Studio/Device wire contracts.
 - Studio must consume a tagged protocol package version, not a moving `main` branch or copied Core-local files.
 - Domain and application models stay independent from protocol DTOs; conversion belongs in infrastructure adapters.
 - Core/Studio handshakes exchange component and protocol versions before normal requests.

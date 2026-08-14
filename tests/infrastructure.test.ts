@@ -23,11 +23,6 @@ import { MockActionExecutor } from "../src/infrastructure/main/mock-action-execu
 import { MockCoreAdapter } from "../src/infrastructure/main/mock-core-adapter";
 import { LocalIpcCoreAdapter } from "../src/infrastructure/main/local-ipc-core-adapter";
 import { OsOpenUrlExecutor } from "../src/infrastructure/main/os-open-url-executor";
-import {
-  plannedCoreStudioProtocolTag,
-  protocolPackageName,
-  protocolPackageUnavailableReason
-} from "../src/infrastructure/main/protocol-readiness";
 import type { ActionExecutionTarget } from "../src/application/ports/action-executor-port";
 
 const keyTarget: ActionExecutionTarget = {
@@ -102,15 +97,9 @@ describe("core adapter factory", () => {
     if (!renamed.ok) expect(renamed.error.code).toBe("unsupported_operation");
   });
 
-  test("keeps protocol package readiness in the main adapter boundary", () => {
-    expect(protocolPackageName).toBe("@keyro/protocol");
-    expect(plannedCoreStudioProtocolTag).toBe("v0.2.0");
-    expect(protocolPackageUnavailableReason()).toContain("@keyro/protocol v0.2.0");
-    expect(protocolPackageUnavailableReason()).toContain("temporary TypeScript contract");
-  });
 });
 
-describe("temporary Core protocol v0.2.0", () => {
+describe("Core protocol package v0.2.0", () => {
   test("keeps versioned DTO helpers in the infrastructure boundary", () => {
     expect(KEYRO_PROTOCOL_VERSION).toBe("0.2.0");
     expect(keyroProtocolVersion).toEqual({ major: 0, minor: 2 });
