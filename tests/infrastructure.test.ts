@@ -85,31 +85,19 @@ describe("core adapter factory", () => {
     expect(readCoreAdapterConfig({ KEYRO_STUDIO_ACTION_EXECUTOR: "anything-else" }).actionExecutorMode).toBe("mock");
   });
 
-  test("reports unsupported Core operations distinctly from connection failures", async () => {
-    const adapter = new LocalIpcCoreAdapter({ connect: () => new FakeCoreSocket(() => undefined) });
-
-    const created = await adapter.createProfile("Second");
-    const renamed = await adapter.renameProfile("profile-core", "Renamed");
-
-    expect(created.ok).toBe(false);
-    if (!created.ok) expect(created.error.code).toBe("unsupported_operation");
-    expect(renamed.ok).toBe(false);
-    if (!renamed.ok) expect(renamed.error.code).toBe("unsupported_operation");
-  });
-
 });
 
-describe("Core protocol package v0.2.0", () => {
+describe("Core protocol package v0.3.0", () => {
   test("keeps versioned DTO helpers in the infrastructure boundary", () => {
-    expect(KEYRO_PROTOCOL_VERSION).toBe("0.2.0");
-    expect(keyroProtocolVersion).toEqual({ major: 0, minor: 2 });
+    expect(KEYRO_PROTOCOL_VERSION).toBe("0.3.0");
+    expect(keyroProtocolVersion).toEqual({ major: 0, minor: 3 });
     expect(handshakeEnvelope("request-1", "0.0.0")).toEqual({
       request_id: "request-1",
       message: {
         type: "handshake",
         component: "studio",
         component_version: "0.0.0",
-        protocol: { major: 0, minor: 2 }
+        protocol: { major: 0, minor: 3 }
       }
     });
   });
@@ -152,7 +140,7 @@ describe("Core protocol package v0.2.0", () => {
       type: "handshake_accepted",
       request_id: "request-handshake",
       core_version: "core-mock",
-      protocol: { major: 0, minor: 2 }
+      protocol: { major: 0, minor: 3 }
     });
 
     const snapshot = await handleCoreProtocolEnvelope(
@@ -189,14 +177,17 @@ describe("Core protocol package v0.2.0", () => {
   test("rejects incompatible protocol handshakes", async () => {
     const service = new StudioService(new MockCoreAdapter());
 
-    const response = await handleCoreProtocolEnvelope(
+    const response = await handleCoreProtocolInput(
       service,
-      createClientEnvelope("request-bad-handshake", {
-        type: "handshake",
-        component: "studio",
-        component_version: "0.0.0",
-        protocol: { major: 1, minor: 0 }
-      }),
+      {
+        request_id: "request-bad-handshake",
+        message: {
+          type: "handshake",
+          component: "studio",
+          component_version: "0.0.0",
+          protocol: { major: 1, minor: 0 }
+        }
+      },
       {
         coreVersion: "core-mock"
       }
@@ -215,14 +206,17 @@ describe("Core protocol package v0.2.0", () => {
   test("rejects same-major minor-skew protocol handshakes during v0", async () => {
     const service = new StudioService(new MockCoreAdapter());
 
-    const response = await handleCoreProtocolEnvelope(
+    const response = await handleCoreProtocolInput(
       service,
-      createClientEnvelope("request-future-minor", {
-        type: "handshake",
-        component: "studio",
-        component_version: "0.0.0",
-        protocol: { major: 0, minor: 3 }
-      }),
+      {
+        request_id: "request-future-minor",
+        message: {
+          type: "handshake",
+          component: "studio",
+          component_version: "0.0.0",
+          protocol: { major: 0, minor: 4 }
+        }
+      },
       {
         coreVersion: "core-mock"
       }
@@ -337,6 +331,64 @@ describe("Core protocol package v0.2.0", () => {
     expect(virtualInput).toEqual({ type: "acknowledged", request_id: "request-virtual" });
   });
 
+  test("handles Core-owned profile mutations and assignment clearing", async () => {
+    const service = new StudioService(new MockCoreAdapter());
+
+    const created = await handleCoreProtocolEnvelope(
+      service,
+      createClientEnvelope("request-create", { type: "create_profile", name: "  Work  " }),
+      { coreVersion: "core-mock" }
+    );
+    expect(created).toMatchObject({
+      type: "profile",
+      request_id: "request-create",
+      profile: { name: "Work", is_active: false }
+    });
+    const profileId = created.type === "profile" ? created.profile.id : "missing";
+
+    const renamed = await handleCoreProtocolEnvelope(
+      service,
+      createClientEnvelope("request-rename", { type: "rename_profile", profile_id: profileId, name: "Deep Work" }),
+      { coreVersion: "core-mock" }
+    );
+    expect(renamed).toEqual({
+      type: "profile",
+      request_id: "request-rename",
+      profile: { id: profileId, name: "Deep Work", is_active: false }
+    });
+
+    const saved = await handleCoreProtocolEnvelope(
+      service,
+      createClientEnvelope("request-save-before-clear", {
+        type: "save_assignment",
+        assignment: {
+          profile_id: profileId,
+          control: { kind: "key", page: 0, key: 0 },
+          action: { kind: "open_url", url: "https://example.com/" }
+        }
+      }),
+      { coreVersion: "core-mock" }
+    );
+    expect(saved).toEqual({ type: "acknowledged", request_id: "request-save-before-clear" });
+
+    const cleared = await handleCoreProtocolEnvelope(
+      service,
+      createClientEnvelope("request-clear", {
+        type: "clear_assignment",
+        profile_id: profileId,
+        control: { kind: "key", page: 0, key: 0 }
+      }),
+      { coreVersion: "core-mock" }
+    );
+    expect(cleared).toEqual({ type: "acknowledged", request_id: "request-clear" });
+
+    const snapshot = await service.getSnapshot();
+    expect(snapshot.ok).toBe(true);
+    if (snapshot.ok) {
+      expect(snapshot.value.profiles.find((profile) => profile.id === profileId)?.pages[0]?.keys[0]?.action).toBeNull();
+    }
+  });
+
   test("maps structured action failure codes into action events", () => {
     const failed = actionEventDtoFromStatus(
       {
@@ -360,6 +412,10 @@ describe("Core protocol package v0.2.0", () => {
 describe("local IPC Core adapter", () => {
   test("handshakes, reads snapshots, saves assignments, activates profiles, and maps action events from Core", async () => {
     let activeProfileId = "profile-core";
+    const profiles = [
+      { id: "profile-core", name: "  Core Default  ", is_active: true },
+      { id: "profile-second", name: "Second", is_active: false }
+    ];
     const assignments: Array<{
       profile_id: string;
       control: { kind: "key"; page: number; key: number } | { kind: "encoder"; page: number; encoder: number; operation: "left" | "right" | "press" };
@@ -376,7 +432,7 @@ describe("local IPC Core adapter", () => {
         writeServerMessage(socket, {
           type: "handshake_accepted",
           request_id: envelope.request_id,
-          core_version: "0.2.0",
+          core_version: "0.3.0",
           protocol: keyroProtocolVersion
         });
         return;
@@ -386,15 +442,41 @@ describe("local IPC Core adapter", () => {
           type: "snapshot",
           request_id: envelope.request_id,
           layout: { page_count: 2, key_rows: 2, key_columns: 3, encoder_count: 1 },
-          profiles: [
-            { id: "profile-core", name: "  Core Default  ", is_active: activeProfileId === "profile-core" },
-            { id: "profile-second", name: "Second", is_active: activeProfileId === "profile-second" }
-          ],
+          profiles: profiles.map((profile) => ({ ...profile, is_active: activeProfileId === profile.id })),
           assignments: assignments.map((assignment) => ({
             profile_id: assignment.profile_id,
             control: assignment.control,
             actions: [assignment.action]
           }))
+        });
+        return;
+      }
+      if (envelope.message.type === "create_profile") {
+        const profile = { id: "profile-created", name: envelope.message.name, is_active: false };
+        profiles.push(profile);
+        writeServerMessage(socket, {
+          type: "profile",
+          request_id: envelope.request_id,
+          profile
+        });
+        return;
+      }
+      if (envelope.message.type === "rename_profile") {
+        const message = envelope.message;
+        const profile = profiles.find((candidate) => candidate.id === message.profile_id);
+        if (!profile) {
+          writeServerMessage(socket, {
+            type: "error",
+            request_id: envelope.request_id,
+            error: { code: "not_found", message: "Profile was not found." }
+          });
+          return;
+        }
+        profile.name = message.name;
+        writeServerMessage(socket, {
+          type: "profile",
+          request_id: envelope.request_id,
+          profile: { ...profile, is_active: activeProfileId === profile.id }
         });
         return;
       }
@@ -408,6 +490,20 @@ describe("local IPC Core adapter", () => {
       }
       if (envelope.message.type === "save_assignment") {
         assignments.push(envelope.message.assignment);
+        writeServerMessage(socket, {
+          type: "acknowledged",
+          request_id: envelope.request_id
+        });
+        return;
+      }
+      if (envelope.message.type === "clear_assignment") {
+        const message = envelope.message;
+        const index = assignments.findIndex(
+          (assignment) =>
+            assignment.profile_id === message.profile_id &&
+            JSON.stringify(assignment.control) === JSON.stringify(message.control)
+        );
+        if (index >= 0) assignments.splice(index, 1);
         writeServerMessage(socket, {
           type: "acknowledged",
           request_id: envelope.request_id
@@ -452,6 +548,19 @@ describe("local IPC Core adapter", () => {
       });
     }
 
+    const created = await adapter.createProfile("  Work  ");
+    expect(created.ok).toBe(true);
+    if (created.ok) {
+      expect(created.value.name).toBe("  Work  ");
+      expect(created.value.active).toBe(false);
+    }
+
+    const renamed = await adapter.renameProfile("profile-created", "Deep Work");
+    expect(renamed.ok).toBe(true);
+    if (renamed.ok) {
+      expect(renamed.value.name).toBe("Deep Work");
+    }
+
     const activated = await adapter.activateProfile("profile-second");
     expect(activated.ok).toBe(true);
     if (activated.ok) {
@@ -468,8 +577,13 @@ describe("local IPC Core adapter", () => {
       const clearedPage = structuredClone(page);
       clearedPage.keys[0]!.action = null;
       const cleared = await adapter.savePage("profile-core", clearedPage);
-      expect(cleared.ok).toBe(false);
-      if (!cleared.ok) expect(cleared.error.code).toBe("unsupported_operation");
+      expect(cleared.ok).toBe(true);
+      if (cleared.ok) {
+        expect(cleared.value.profiles[0]?.pages[0]?.keys[0]?.action).toBeNull();
+      }
+
+      const idempotentClear = await adapter.savePage("profile-core", clearedPage);
+      expect(idempotentClear.ok).toBe(true);
 
       const multiChangePage = structuredClone(page);
       multiChangePage.keys[1]!.action = { kind: "open_url", url: "https://example.com/second" };
@@ -480,10 +594,10 @@ describe("local IPC Core adapter", () => {
     }
     expect(assignments).toContainEqual({
       profile_id: "profile-core",
-      control: { kind: "key", page: 0, key: 0 },
-      action: { kind: "open_url", url: "https://example.com/" }
+      control: { kind: "encoder", page: 0, encoder: 0, operation: "left" },
+      action: { kind: "open_url", url: "https://example.com/left" }
     });
-    expect(assignments).toHaveLength(2);
+    expect(assignments).toHaveLength(1);
 
     const result = await adapter.sendVirtualInput({
       type: "key",
@@ -523,15 +637,107 @@ describe("local IPC Core adapter", () => {
     await server.close();
   });
 
-  test("rejects incompatible handshakes from Core", async () => {
+  test("rejects malformed and unexpected profile mutation responses from Core", async () => {
+    const unexpectedServer = await createFakeCoreServer((envelope, socket) => {
+      if (envelope.message.type === "handshake") {
+        writeServerMessage(socket, {
+          type: "handshake_accepted",
+          request_id: envelope.request_id,
+          core_version: "0.3.0",
+          protocol: keyroProtocolVersion
+        });
+        return;
+      }
+      if (envelope.message.type === "create_profile") {
+        writeServerMessage(socket, { type: "acknowledged", request_id: envelope.request_id });
+      }
+    });
+    const unexpectedAdapter = new LocalIpcCoreAdapter({
+      socketPath: unexpectedServer.socketPath,
+      connect: unexpectedServer.connect
+    });
+
+    const unexpected = await unexpectedAdapter.createProfile("Work");
+    expect(unexpected.ok).toBe(false);
+    if (!unexpected.ok) expect(unexpected.error.code).toBe("core_unavailable");
+    await unexpectedAdapter.close();
+    await unexpectedServer.close();
+
+    const malformedServer = await createFakeCoreServer((envelope, socket) => {
+      if (envelope.message.type === "handshake") {
+        writeServerMessage(socket, {
+          type: "handshake_accepted",
+          request_id: envelope.request_id,
+          core_version: "0.3.0",
+          protocol: keyroProtocolVersion
+        });
+        return;
+      }
+      if (envelope.message.type === "create_profile") {
+        socket.receiveRaw(
+          `${JSON.stringify({
+            type: "profile",
+            request_id: envelope.request_id,
+            profile: { id: 1, name: "Work", is_active: false }
+          })}\n`
+        );
+      }
+    });
+    const malformedAdapter = new LocalIpcCoreAdapter({
+      socketPath: malformedServer.socketPath,
+      connect: malformedServer.connect
+    });
+
+    const malformed = await malformedAdapter.createProfile("Work");
+    expect(malformed.ok).toBe(false);
+    if (!malformed.ok) expect(malformed.error.message).toContain("Could not communicate with Keyro Core.");
+    await malformedAdapter.close();
+    await malformedServer.close();
+  });
+
+  test("maps Core not_found profile mutation responses to validation errors", async () => {
     const server = await createFakeCoreServer((envelope, socket) => {
       if (envelope.message.type === "handshake") {
         writeServerMessage(socket, {
           type: "handshake_accepted",
           request_id: envelope.request_id,
-          core_version: "0.1.0",
-          protocol: { major: 0, minor: 1 }
+          core_version: "0.3.0",
+          protocol: keyroProtocolVersion
         });
+        return;
+      }
+      if (envelope.message.type === "rename_profile") {
+        writeServerMessage(socket, {
+          type: "error",
+          request_id: envelope.request_id,
+          error: { code: "not_found", message: "Profile was not found." }
+        });
+      }
+    });
+    const adapter = new LocalIpcCoreAdapter({ socketPath: server.socketPath, connect: server.connect });
+
+    const result = await adapter.renameProfile("missing", "Renamed");
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.code).toBe("validation_error");
+      expect(result.error.message).toBe("Profile was not found.");
+    }
+    await adapter.close();
+    await server.close();
+  });
+
+  test("rejects incompatible handshakes from Core", async () => {
+    const server = await createFakeCoreServer((envelope, socket) => {
+      if (envelope.message.type === "handshake") {
+        socket.receiveRaw(
+          `${JSON.stringify({
+            type: "handshake_accepted",
+            request_id: envelope.request_id,
+            core_version: "0.1.0",
+            protocol: { major: 0, minor: 1 }
+          })}\n`
+        );
       }
     });
     const adapter = new LocalIpcCoreAdapter({ socketPath: server.socketPath, connect: server.connect });
@@ -550,7 +756,7 @@ describe("local IPC Core adapter", () => {
         writeServerMessage(socket, {
           type: "handshake_accepted",
           request_id: envelope.request_id,
-          core_version: "0.2.0",
+          core_version: "0.3.0",
           protocol: keyroProtocolVersion
         });
         return;
@@ -583,7 +789,7 @@ describe("local IPC Core adapter", () => {
         writeServerMessage(socket, {
           type: "handshake_accepted",
           request_id: envelope.request_id,
-          core_version: "0.2.0",
+          core_version: "0.3.0",
           protocol: keyroProtocolVersion
         });
         return;
