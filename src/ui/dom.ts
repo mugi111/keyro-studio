@@ -133,6 +133,10 @@ function editorMarkup(state: UIState, profileId: string, page: PageConfig): stri
       </div>
     </div>
 
+    <section class="action-editor">
+      ${actionEditorMarkup(state, page)}
+    </section>
+
     <div class="device-area">
       <section class="key-grid" style="grid-template-columns: repeat(${layout.keyColumns}, minmax(96px, 1fr));">
         ${page.keys.map((key) => keyMarkup(state, key)).join("")}
@@ -143,10 +147,6 @@ function editorMarkup(state: UIState, profileId: string, page: PageConfig): stri
         ${page.encoders.map((encoder) => encoderMarkup(state, encoder)).join("")}
       </section>
     </div>
-
-    <section class="action-editor">
-      ${actionEditorMarkup(state, page)}
-    </section>
 
     <section class="save-state ${state.saveStatus.state}">
       ${saveStatusText(state)}
