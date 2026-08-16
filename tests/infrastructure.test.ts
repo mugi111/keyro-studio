@@ -410,6 +410,42 @@ describe("Core protocol package v0.3.0", () => {
 });
 
 describe("local IPC Core adapter", () => {
+  test("waits for the initial handshake before concurrent requests use the socket", async () => {
+    const receivedTypes: string[] = [];
+    const server = await createFakeCoreServer((envelope, socket) => {
+      receivedTypes.push(envelope.message.type);
+      if (envelope.message.type === "handshake") {
+        writeServerMessage(socket, {
+          type: "handshake_accepted",
+          request_id: envelope.request_id,
+          core_version: "0.3.0",
+          protocol: keyroProtocolVersion
+        });
+        return;
+      }
+      if (envelope.message.type === "get_snapshot") {
+        writeServerMessage(socket, {
+          type: "snapshot",
+          request_id: envelope.request_id,
+          layout: { page_count: 1, key_rows: 1, key_columns: 1, encoder_count: 1 },
+          profiles: [{ id: "profile-core", name: "Core Default", is_active: true }],
+          assignments: []
+        });
+      }
+    });
+    const adapter = new LocalIpcCoreAdapter({ socketPath: server.socketPath, connect: server.connect });
+
+    const [first, second] = await Promise.all([adapter.getSnapshot(), adapter.getSnapshot()]);
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(receivedTypes[0]).toBe("handshake");
+    expect(receivedTypes.filter((type) => type === "handshake")).toHaveLength(1);
+    expect(receivedTypes.filter((type) => type === "get_snapshot")).toHaveLength(2);
+    await adapter.close();
+    await server.close();
+  });
+
   test("handshakes, reads snapshots, saves assignments, activates profiles, and maps action events from Core", async () => {
     let activeProfileId = "profile-core";
     const profiles = [

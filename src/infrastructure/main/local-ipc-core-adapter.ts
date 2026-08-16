@@ -199,8 +199,11 @@ export class LocalIpcCoreAdapter implements CorePort {
   }
 
   private async ensureConnected(): Promise<void> {
-    if (this.socket && !this.socket.destroyed) return;
     if (this.connectPromise) return this.connectPromise;
+    if (this.socket && !this.socket.destroyed && this.status.state === "connected") return;
+    if (this.socket && !this.socket.destroyed) {
+      this.closeSocket("Resetting incomplete Core IPC connection.");
+    }
 
     this.setStatus({ state: "connecting" });
     this.connectPromise = new Promise<void>((resolve, reject) => {
