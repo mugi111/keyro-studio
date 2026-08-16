@@ -208,15 +208,15 @@ export function draftUrlForCurrentTarget(state: UIState): string | null {
 }
 
 export function canStartActionSave(state: UIState): boolean {
-  return state.saveStatus.state !== "saving";
+  return state.connection.state === "connected" && state.saveStatus.state !== "saving";
 }
 
 export function canStartProfileOperation(state: UIState): boolean {
-  return state.profileStatus.state !== "working";
+  return state.connection.state === "connected" && state.profileStatus.state !== "working";
 }
 
 export function canStartVirtualInput(state: UIState): boolean {
-  return state.actionStatus.state !== "running";
+  return state.connection.state === "connected" && state.actionStatus.state !== "running";
 }
 
 export function actionStatusForTarget(state: UIState, target: ActionEditTarget): ActionExecutionStatus | null {

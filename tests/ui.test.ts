@@ -179,19 +179,23 @@ describe("ui state", () => {
   });
 
   test("blocks duplicate operations while each operation is running", () => {
-    const saving = markSaveStarted(initialUIState);
-    const profileWorking = markProfileOperationStarted(initialUIState, "Creating profile...");
+    const connected = { ...initialUIState, connection: { state: "connected" as const } };
+    const saving = markSaveStarted(connected);
+    const profileWorking = markProfileOperationStarted(connected, "Creating profile...");
     const actionRunning = {
-      ...initialUIState,
+      ...connected,
       actionStatus: { state: "running" as const, target: keyTarget }
     };
 
     expect(canStartActionSave(saving)).toBe(false);
-    expect(canStartActionSave(initialUIState)).toBe(true);
+    expect(canStartActionSave(initialUIState)).toBe(false);
+    expect(canStartActionSave(connected)).toBe(true);
     expect(canStartProfileOperation(profileWorking)).toBe(false);
-    expect(canStartProfileOperation(initialUIState)).toBe(true);
+    expect(canStartProfileOperation(initialUIState)).toBe(false);
+    expect(canStartProfileOperation(connected)).toBe(true);
     expect(canStartVirtualInput(actionRunning)).toBe(false);
-    expect(canStartVirtualInput(initialUIState)).toBe(true);
+    expect(canStartVirtualInput(initialUIState)).toBe(false);
+    expect(canStartVirtualInput(connected)).toBe(true);
   });
 
   test("marks virtual input running before the Core event returns", () => {
@@ -218,7 +222,7 @@ describe("ui state", () => {
       code: "internal",
       message: "Core is disconnected."
     });
-    expect(canStartVirtualInput(failed)).toBe(true);
+    expect(canStartVirtualInput({ ...failed, connection: { state: "connected" } })).toBe(true);
     expect(failed.error).toBe("Core is disconnected.");
   });
 

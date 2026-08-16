@@ -129,6 +129,48 @@ describe("DOM UI integration", () => {
     expect(root.querySelector("[data-field='profile-name']")?.value).toBe("Default");
   });
 
+  test("does not restore a stale connecting status after snapshot hydration connects", async () => {
+    const layout = { pageCount: 1, keyRows: 1, keyColumns: 1, encoderCount: 1 };
+    const profile = createEmptyProfile("profile-1", "Default", layout, true);
+    const snapshot = { layout, profiles: [profile], activeProfileId: profile.id };
+    const api = new FakeStudioApi(snapshot);
+    const root = new TestDomRoot();
+    let snapshotHydrated = false;
+
+    api.getSnapshot = async () => {
+      snapshotHydrated = true;
+      api.emit({ type: "connection", status: { state: "connected" } });
+      return ok(structuredClone(snapshot));
+    };
+    api.getConnectionStatus = async () => (snapshotHydrated ? { state: "connected" } : { state: "connecting" });
+
+    mountStudio(root as unknown as HTMLElement, api);
+    await flushMicrotasks();
+
+    expect(root.innerHTML).toContain("connected");
+    expect(root.innerHTML).not.toContain("Connecting");
+    expect(root.querySelector("[data-field='profile-name']")?.value).toBe("Default");
+  });
+
+  test("disables Core mutation controls while the connection is not ready", async () => {
+    const layout = { pageCount: 1, keyRows: 1, keyColumns: 1, encoderCount: 1 };
+    const profile = createEmptyProfile("profile-1", "Default", layout, true);
+    const api = new FakeStudioApi({ layout, profiles: [profile], activeProfileId: profile.id });
+    const root = new TestDomRoot();
+
+    api.getConnectionStatus = async () => ({ state: "connecting" });
+
+    mountStudio(root as unknown as HTMLElement, api);
+    await flushMicrotasks();
+    await element(root, "[data-key='0']").click();
+
+    expect(element(root, "[data-action='create-profile']").disabled).toBe(true);
+    expect(element(root, "[data-field='profile-name']").disabled).toBe(true);
+    expect(element(root, "[data-action='save-action']").disabled).toBe(true);
+    expect(element(root, "[data-action='clear-action']").disabled).toBe(true);
+    expect(element(root, "[data-action='simulate-input']").disabled).toBe(true);
+  });
+
   test("renders state changes and wires key editing events to savePage", async () => {
     const layout = { pageCount: 2, keyRows: 1, keyColumns: 2, encoderCount: 1 };
     const profile = createEmptyProfile("profile-1", "Default", layout, true);
@@ -142,6 +184,7 @@ describe("DOM UI integration", () => {
     expect(element(root, "[data-page='1']").className).toContain("selected");
 
     await element(root, "[data-key='0']").click();
+    expect(root.innerHTML.indexOf('class="action-editor"')).toBeLessThan(root.innerHTML.indexOf('class="device-area"'));
     const urlInput = element(root, "[data-field='action-url']");
     await urlInput.input("https://example.com/meeting");
     expect(root.innerHTML).toContain("Unsaved changes.");
