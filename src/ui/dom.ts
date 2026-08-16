@@ -62,7 +62,8 @@ export function mountStudio(root: HTMLElement, api: StudioAPI) {
 }
 
 async function hydrate(context: RenderContext) {
-  const [connection, snapshot] = await Promise.all([context.api.getConnectionStatus(), context.api.getSnapshot()]);
+  const snapshot = await context.api.getSnapshot();
+  const connection = await context.api.getConnectionStatus();
   context.state = { ...context.state, connection };
   if (snapshot.ok) {
     context.state = reduceCoreEvent(context.state, { type: "snapshot", snapshot: snapshot.value });

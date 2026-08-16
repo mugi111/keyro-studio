@@ -129,6 +129,29 @@ describe("DOM UI integration", () => {
     expect(root.querySelector("[data-field='profile-name']")?.value).toBe("Default");
   });
 
+  test("does not restore a stale connecting status after snapshot hydration connects", async () => {
+    const layout = { pageCount: 1, keyRows: 1, keyColumns: 1, encoderCount: 1 };
+    const profile = createEmptyProfile("profile-1", "Default", layout, true);
+    const snapshot = { layout, profiles: [profile], activeProfileId: profile.id };
+    const api = new FakeStudioApi(snapshot);
+    const root = new TestDomRoot();
+    let snapshotHydrated = false;
+
+    api.getSnapshot = async () => {
+      snapshotHydrated = true;
+      api.emit({ type: "connection", status: { state: "connected" } });
+      return ok(structuredClone(snapshot));
+    };
+    api.getConnectionStatus = async () => (snapshotHydrated ? { state: "connected" } : { state: "connecting" });
+
+    mountStudio(root as unknown as HTMLElement, api);
+    await flushMicrotasks();
+
+    expect(root.innerHTML).toContain("connected");
+    expect(root.innerHTML).not.toContain("Connecting");
+    expect(root.querySelector("[data-field='profile-name']")?.value).toBe("Default");
+  });
+
   test("renders state changes and wires key editing events to savePage", async () => {
     const layout = { pageCount: 2, keyRows: 1, keyColumns: 2, encoderCount: 1 };
     const profile = createEmptyProfile("profile-1", "Default", layout, true);
