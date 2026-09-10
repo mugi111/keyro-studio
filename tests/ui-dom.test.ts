@@ -227,6 +227,29 @@ describe("DOM UI integration", () => {
     expect(root.innerHTML).toContain("target-success");
   });
 
+  test("renders request failures without an action event and keeps acknowledgements pending", async () => {
+    const layout = { pageCount: 1, keyRows: 1, keyColumns: 1, encoderCount: 1 };
+    const profile = createEmptyProfile("profile-1", "Default", layout, true);
+    const api = new FakeStudioApi({ layout, profiles: [profile], activeProfileId: profile.id });
+    const root = new TestDomRoot();
+    api.sendVirtualInput = async (input) => ok({ state: "failure", target: actionTargetFromInput(input), code: "internal", message: "Core request failed." });
+    mountStudio(root as unknown as HTMLElement, api);
+    await flushMicrotasks();
+    await element(root, "[data-key='0']").click();
+    await element(root, "[data-action='simulate-input']").click();
+    expect(root.innerHTML).toContain("Core request failed.");
+    expect(element(root, "[data-action='simulate-input']").disabled).toBe(false);
+
+    api.sendVirtualInput = async (input) => ok({ state: "success", target: actionTargetFromInput(input), message: "Action request completed." });
+    await element(root, "[data-action='simulate-input']").click();
+    expect(element(root, "[data-action='simulate-input']").disabled).toBe(true);
+    expect(root.innerHTML).not.toContain("Action request completed.");
+    await element(root, "[data-action='disconnect']").click();
+    expect(root.innerHTML).toContain("Core disconnected before action completion was confirmed.");
+    await element(root, "[data-action='reconnect']").click();
+    expect(element(root, "[data-action='simulate-input']").disabled).toBe(false);
+  });
+
   test("renders virtual input failures on the target control", async () => {
     const layout = { pageCount: 1, keyRows: 1, keyColumns: 1, encoderCount: 1 };
     const profile = createEmptyProfile("profile-1", "Default", layout, true);

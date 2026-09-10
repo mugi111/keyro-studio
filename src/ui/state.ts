@@ -67,6 +67,9 @@ export function reduceCoreEvent(state: UIState, event: CoreEvent): UIState {
     return {
       ...state,
       connection: event.status,
+      actionStatus: event.status.state !== "connected" && state.actionStatus.state === "running"
+        ? { state: "failure", target: state.actionStatus.target, code: "internal", message: "Core disconnected before action completion was confirmed." }
+        : state.actionStatus,
       saveStatus: normalizeSaveStatusForConnection(state.saveStatus, event.status, state.actionDraft)
     };
   }

@@ -393,6 +393,9 @@ async function simulateCurrentInput(context: RenderContext) {
   if (result && !result.ok) {
     context.state = markVirtualInputFailed(context.state, result.error.message);
     render(context);
+  } else if (result?.ok && result.value.state === "failure" && context.state.actionStatus.state === "running") {
+    context.state = reduceCoreEvent(context.state, { type: "action", status: result.value });
+    render(context);
   }
 }
 
