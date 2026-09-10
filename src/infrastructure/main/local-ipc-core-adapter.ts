@@ -1,4 +1,5 @@
 import { createConnection, type Socket } from "node:net";
+import { defaultCoreEndpoint } from "./core-endpoint";
 import { defaultDeviceLayout, validateDeviceLayout, type DeviceLayout } from "../../shared/device-layout";
 import { err, ok, type Result } from "../../shared/result";
 import {
@@ -62,6 +63,7 @@ export type LocalIpcSocket = {
 export class LocalIpcCoreAdapter implements CorePort {
   private socket: LocalIpcSocket | null = null;
   private connectPromise: Promise<void> | null = null;
+  private rejectConnection: ((error: Error) => void) | null = null;
   private status: ConnectionStatus = { state: "disconnected", reason: "Not connected." };
   private readonly listeners = new Set<(event: CoreEvent) => void>();
   private readonly pending = new Map<string, PendingRequest>();
@@ -178,7 +180,8 @@ export class LocalIpcCoreAdapter implements CorePort {
   async simulateReconnect(): Promise<ConnectionStatus> {
     this.closeSocket("Reconnect requested.");
     this.setStatus({ state: "reconnecting", reason: "Reconnect requested." });
-    await this.ensureConnected();
+    const snapshot = await this.getSnapshot();
+    if (!snapshot.ok) this.setStatus({ state: "error", message: snapshot.error.message });
     return this.status;
   }
 
@@ -206,7 +209,7 @@ export class LocalIpcCoreAdapter implements CorePort {
     }
 
     this.setStatus({ state: "connecting" });
-    this.connectPromise = new Promise<void>((resolve, reject) => {
+    const connecting = new Promise<void>((resolve, reject) => {
       const socket = this.createSocket();
       let settled = false;
       const fail = (error: Error) => {
@@ -216,22 +219,25 @@ export class LocalIpcCoreAdapter implements CorePort {
         }
       };
       this.socket = socket;
+      this.rejectConnection = fail;
       socket.setEncoding("utf8");
-      socket.on("data", (chunk) => this.handleData(String(chunk)));
+      socket.on("data", (chunk) => {
+        if (this.socket === socket) this.handleData(String(chunk));
+      });
       socket.on("error", (error) => {
-        this.rejectPending(error);
+        if (this.socket !== socket) return;
+        this.closeSocket(error.message);
         this.setStatus({ state: "error", message: error.message });
         fail(error);
       });
       socket.on("close", () => {
-        this.socket = null;
-        this.connectPromise = null;
-        this.rejectPending(new Error("Core IPC connection closed."));
-        this.setStatus({ state: "disconnected", reason: "Core IPC connection closed." });
+        if (this.socket === socket) this.closeSocket("Core IPC connection closed.");
       });
       socket.once("connect", () => {
+        if (this.socket !== socket) return;
         this.writeEnvelope(createHandshakeMessage(this.options.componentVersion ?? "0.1.0"))
           .then((message) => {
+            if (this.socket !== socket) throw new Error("Core IPC connection was replaced.");
             if (message.type !== "handshake_accepted") {
               throw new Error("Core rejected the protocol handshake.");
             }
@@ -243,15 +249,19 @@ export class LocalIpcCoreAdapter implements CorePort {
             resolve();
           })
           .catch((error) => {
-            this.closeSocket(errorMessage(error));
+            if (this.socket === socket) this.closeSocket(errorMessage(error));
             fail(error instanceof Error ? error : new Error(errorMessage(error)));
           });
       });
     }).finally(() => {
-      this.connectPromise = null;
+      if (this.connectPromise === connecting) {
+        this.connectPromise = null;
+        this.rejectConnection = null;
+      }
     });
 
-    return this.connectPromise;
+    this.connectPromise = connecting;
+    return connecting;
   }
 
   private writeEnvelope(message: ClientMessage): Promise<ServerMessage> {
@@ -345,7 +355,7 @@ export class LocalIpcCoreAdapter implements CorePort {
   }
 
   private socketPath(): string {
-    return this.options.socketPath ?? `${process.env.HOME ?? ""}/Library/Application Support/Keyro/Core/keyro-core-dev.sock`;
+    return this.options.socketPath ?? defaultCoreEndpoint();
   }
 
   private createSocket(): LocalIpcSocket {
@@ -368,10 +378,15 @@ export class LocalIpcCoreAdapter implements CorePort {
   }
 
   private closeSocket(reason: string): void {
-    this.socket?.destroy();
+    const socket = this.socket;
     this.socket = null;
     this.connectPromise = null;
+    this.rejectConnection?.(new Error(reason));
+    this.rejectConnection = null;
+    this.buffer = "";
+    this.executionTargets.clear();
     this.rejectPending(new Error(reason));
+    socket?.destroy();
     this.setStatus({ state: "disconnected", reason });
   }
 
