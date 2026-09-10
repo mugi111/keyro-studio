@@ -4,6 +4,10 @@ Assessed on 2026-09-10 at `c4c2b7a`. Sources: README, application ports,
 UI implementation, local IPC adapter, and the existing tests. This is a
 repository-derived backlog, not a complete external product specification.
 
+Windows 11 x64 is now the primary acceptance target. See
+[Windows acceptance](windows-acceptance.md) for setup, native CI, and the
+functional checks that still require a Windows machine.
+
 ## Implemented
 
 - Typed Electrobun RPC and separate domain/application/infrastructure/UI layers.
@@ -23,8 +27,9 @@ Baseline: `bun run check` passes type checking and 90 tests.
 | UI-01 | P1 | Implemented | After successful profile activation, select that profile in the editor. Clear the previous profile's edit target/draft on a switch, preserve it on failure, and block profile operations while saving and saves/virtual inputs during profile operations. Key and encoder editing regressions pass; general save-completion races remain UI-02. |
 | UI-02 | P1 | Open | Associate save completion with its request. `reduceCoreEvent` currently treats every snapshot received during saving as success. Unrelated snapshots must not clear a draft or report a successful save. Cover delayed responses and edits during a pending save. |
 | UI-03 | P1 | Open | Preserve input focus/caret while typing URLs. The input handler currently replaces the entire root via `innerHTML`. Verify continuous typing in a real browser, including Core events during editing. |
-| IPC-01 | P1 | Open | Isolate reconnect sessions. Old socket callbacks currently share socket, buffer, and pending-request state. Cover delayed old-socket close/data events and partial frames across reconnects. |
-| UI-04 | P1 | Open | Handle virtual-input request failures returned as successful `Result` values containing failure status. The UI currently only consumes failed `Result` values or pushed action events. Verify failed requests leave running state without treating acknowledgement as completed execution. |
+| IPC-01 | P1 | Implemented; Windows run pending | Ignore old socket events, clear partial frames/execution tracking, settle cancelled connection attempts, and reload Core snapshots on reconnect. Controlled-socket and native Unix transport tests pass; Windows CI runs the named-pipe variant. |
+| UI-04 | P1 | Implemented | Display failure statuses returned without an action event. Acknowledgements do not imply execution completion. Disconnect ends an unconfirmed running state and permits retry after reconnect. DOM regression passes. |
+| WIN-01 | P1 | Implemented; Windows run pending | Use Core's `\\.\pipe\keyro-core-dev` by default on Windows, preserve explicit overrides, and verify the native named-pipe transport in Windows CI. |
 | QA-01 | P2 | Open | Run packaged Electrobun against a real Core process: connect, create/rename/activate, edit/clear key and encoder assignments, restart/reconnect, and check execution events. Current tests use fakes or mock adapters. |
 | RELEASE-01 | P2 | Open | Separate development and production CSP. Remove development localhost WebSocket allowance from release assets and verify packaged RPC still works. |
 
@@ -66,3 +71,20 @@ Commit the assessment separately from the implementation and regression tests.
 - No real Core or native Electrobun session was exercised. Existing navigation
   semantics discard drafts when switching targets, including profiles after
   this fix; a discard-confirmation workflow remains a product decision.
+
+## Windows Implementation Pass
+
+All orchestration, design, implementation and diff-review passes are manual;
+no subagents are used. The Core Windows quickstart and `windows_ipc.rs` were
+read to confirm the endpoint and protocol. OS selection remains in main
+infrastructure, and UI communicates only through the existing typed API.
+
+Commits separate endpoint/reconnect changes, execution-state handling, and
+Windows CI/documentation. Real Windows UI acceptance and production packaging
+are not marked complete by passing host tests.
+
+Host verification: `bun run check` passed type checking and 100 tests across
+10 files, including real Unix IPC; `bun run build` completed the macOS
+development build without signing/notarization. Workflow YAML parsing and
+`git diff --check` passed. Final-diff self-review found no BLOCKER or MAJOR
+issues in these changes. Windows CI has been added but not executed here.

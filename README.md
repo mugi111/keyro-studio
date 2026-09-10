@@ -24,7 +24,9 @@ bun run check
 bun run dev
 ```
 
-Set `KEYRO_STUDIO_CORE_MODE=local-ipc` to connect Studio to a local Keyro Core IPC socket. The default socket path is `~/Library/Application Support/Keyro/Core/keyro-core-dev.sock`; set `KEYRO_STUDIO_CORE_SOCKET=/path/to/keyro-core-dev.sock` to override it. The default mode is `mock`.
+Windows 11 x64 is the primary acceptance target. See [Windows startup and acceptance](docs/windows-acceptance.md) for PowerShell commands and the functional checklist.
+
+Set `KEYRO_STUDIO_CORE_MODE=local-ipc` to connect Studio to Keyro Core. The default endpoint on Windows is `\\.\pipe\keyro-core-dev`; on macOS it is `~/Library/Application Support/Keyro/Core/keyro-core-dev.sock`; on Linux it is `~/.local/share/keyro/core/keyro-core-dev.sock`. Set `KEYRO_STUDIO_CORE_SOCKET` to override the endpoint. The default mode is `mock`. Reconnect refreshes the snapshot from Core.
 
 The local IPC adapter uses the Core protocol v0.3 snapshot as Studio's authoritative source for device layout, profiles, and assignments. It supports profile creation, profile rename, active profile switching, single-assignment saves, assignment clearing, virtual control input, and Core action events.
 
