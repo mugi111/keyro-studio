@@ -20,7 +20,7 @@ Baseline: `bun run check` passes type checking and 90 tests.
 
 | ID | Priority | Status | Task and Acceptance Criteria |
 | --- | --- | --- | --- |
-| UI-01 | P1 | Planned | After successful profile activation, select that profile in the editor. Clear the previous profile's edit target/draft on a switch, preserve it on failure, and prevent save/profile-operation overlap. Verify key and encoder editing against the selected profile. |
+| UI-01 | P1 | Implemented | After successful profile activation, select that profile in the editor. Clear the previous profile's edit target/draft on a switch, preserve it on failure, and block profile operations while saving and saves/virtual inputs during profile operations. Key and encoder editing regressions pass; general save-completion races remain UI-02. |
 | UI-02 | P1 | Open | Associate save completion with its request. `reduceCoreEvent` currently treats every snapshot received during saving as success. Unrelated snapshots must not clear a draft or report a successful save. Cover delayed responses and edits during a pending save. |
 | UI-03 | P1 | Open | Preserve input focus/caret while typing URLs. The input handler currently replaces the entire root via `innerHTML`. Verify continuous typing in a real browser, including Core events during editing. |
 | IPC-01 | P1 | Open | Isolate reconnect sessions. Old socket callbacks currently share socket, buffer, and pending-request state. Cover delayed old-socket close/data events and partial frames across reconnects. |
@@ -50,3 +50,19 @@ regressions, run `bun run check`, then review the final diff manually.
 
 All passes in this task are performed by the main agent without subagents.
 Commit the assessment separately from the implementation and regression tests.
+
+## UI-01 Verification and Handoff
+
+- Completed manual orchestration, architecture, implementation, and final-diff
+  self-review. No subagents were used.
+- Changed `src/ui/state.ts` and `src/ui/dom.ts`; added four tests and extended
+  the existing activation test in `tests/ui.test.ts` and `tests/ui-dom.test.ts`.
+- Regression tests reproduced stale profile selection and enabled saves during
+  activation before the fix. `bun run check` now passes type checking and all
+  94 tests; `git diff --check` passes.
+- No BLOCKER or MAJOR finding in the scoped final diff. Previously identified
+  save-completion, input-focus, IPC reconnect, and action-result issues remain
+  in the backlog above.
+- No real Core or native Electrobun session was exercised. Existing navigation
+  semantics discard drafts when switching targets, including profiles after
+  this fix; a discard-confirmation workflow remains a product decision.

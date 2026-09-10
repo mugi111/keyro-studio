@@ -17,7 +17,9 @@ import {
   markVirtualInputFailed,
   markVirtualInputStarted,
   reduceCoreEvent,
-  selectKeyTarget
+  selectKeyTarget,
+  selectEncoderTarget,
+  selectProfileForEditing
 } from "../src/ui/state";
 import { createEmptyProfile } from "../src/domain/profile";
 import { profileNameSubmission, profileRenameIntent, type ProfileRenameIntent } from "../src/ui/profile-name";
@@ -47,6 +49,40 @@ describe("ui state", () => {
   test("describes variable key grids for component tests", () => {
     expect(describeGridColumns(3, 4)).toBe("3x4:12");
     expect(describeGridColumns(2, 5)).toBe("2x5:10");
+  });
+
+  test("profile selection clears encoder drafts and old save failures but preserves the page", () => {
+    const layout = { pageCount: 2, keyRows: 1, keyColumns: 1, encoderCount: 1 };
+    const profiles = [createEmptyProfile("p1", "First", layout, true), createEmptyProfile("p2", "Second", layout)];
+    const loaded = reduceCoreEvent({ ...initialUIState, selectedPageIndex: 1 }, {
+      type: "snapshot", snapshot: { layout, profiles, activeProfileId: "p1" }
+    });
+    const editing = markSaveFailed(
+      markActionDraftChanged(selectEncoderTarget(loaded, 0, "press"), "https://draft.example/"),
+      "Save failed."
+    );
+    expect(selectProfileForEditing(editing, "p1")).toBe(editing);
+    expect(selectProfileForEditing(editing, "missing")).toBe(editing);
+    const switched = selectProfileForEditing(editing, "p2");
+    expect(switched.selectedProfileId).toBe("p2");
+    expect(switched.selectedPageIndex).toBe(1);
+    expect(switched.actionDraft).toBeNull();
+    expect(switched.editingKeyIndex).toBeNull();
+    expect(switched.editingEncoderIndex).toBeNull();
+    expect(switched.editingEncoderControl).toBeNull();
+    expect(switched.saveStatus.state).toBe("idle");
+    expect(switched.error).toBeNull();
+  });
+
+  test("prevents profile mutations during saves and saves or virtual input during profile mutations", () => {
+    const connected = { ...initialUIState, connection: { state: "connected" as const } };
+    expect(canStartProfileOperation(markSaveStarted(connected))).toBe(false);
+    const switching = markProfileOperationStarted(connected, "Activating profile...");
+    expect(canStartActionSave(switching)).toBe(false);
+    expect(canStartVirtualInput(switching)).toBe(false);
+    const completed = markProfileOperationSucceeded(switching, "Profile activated.");
+    expect(canStartActionSave(completed)).toBe(true);
+    expect(canStartVirtualInput(completed)).toBe(true);
   });
 
   test("tracks dirty and saving states for action drafts", () => {

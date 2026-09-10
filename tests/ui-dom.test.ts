@@ -4,7 +4,7 @@ import { createEmptyProfile } from "../src/domain/profile";
 import type { ActionExecutionStatus, ActionExecutionTarget } from "../src/application/ports/action-executor-port";
 import type { ConnectionStatus, CoreEvent } from "../src/application/ports/core-port";
 import { mountStudio, type StudioAPI } from "../src/ui/dom";
-import { ok, type Result } from "../src/shared/result";
+import { err, ok, type Result } from "../src/shared/result";
 import { flushMicrotasks, TestDomElement, TestDomRoot } from "./helpers/test-dom";
 
 class FakeStudioApi implements StudioAPI {
@@ -345,7 +345,73 @@ describe("DOM UI integration", () => {
 
     expect(api.activatedProfiles).toEqual(["profile-2"]);
     expect(root.innerHTML).toContain("Profile activated.");
-    expect(root.innerHTML).toContain('data-profile="profile-2" class="" >Second<span>Active</span>');
+    expect(element(root, "[data-profile='profile-2']").className).toBe("selected");
+    expect(element(root, "[data-field='profile-name']").value).toBe("Second");
+    await element(root, "[data-field='profile-name']").change("Updated Second");
+    expect(api.renamedProfiles).toEqual([{ profileId: secondProfile.id, name: "Updated Second" }]);
+  });
+
+  test("switches editor assignments only after activation succeeds and drops the old draft", async () => {
+    const layout = { pageCount: 1, keyRows: 1, keyColumns: 1, encoderCount: 1 };
+    const first = createEmptyProfile("profile-1", "First", layout, true);
+    const second = createEmptyProfile("profile-2", "Second", layout);
+    second.pages[0]!.keys[0]!.action = { kind: "open_url", url: "https://second.example/" };
+    second.pages[0]!.encoders[0]!.press = { kind: "open_url", url: "https://encoder.example/" };
+    const api = new FakeStudioApi({ layout, profiles: [first, second], activeProfileId: first.id });
+    const root = new TestDomRoot();
+    mountStudio(root as unknown as HTMLElement, api);
+    await flushMicrotasks();
+    await element(root, "[data-key='0']").click();
+    await element(root, "[data-field='action-url']").input("https://unsaved.example/");
+
+    const activate = api.activateProfile.bind(api);
+    let resolve!: (result: Result<StudioSnapshot>) => void;
+    api.activateProfile = () => new Promise((done) => { resolve = done; });
+    const pending = element(root, "[data-profile='profile-2']").click();
+    expect(element(root, "[data-field='profile-name']").value).toBe("First");
+    expect(element(root, "[data-action='save-action']").disabled).toBe(true);
+    await element(root, "[data-action='save-action']").click();
+    expect(api.savedPages).toHaveLength(0);
+    const beforeActivation = await api.getSnapshot();
+    if (!beforeActivation.ok) throw new Error("Expected snapshot");
+    api.emit({ type: "snapshot", snapshot: beforeActivation.value });
+    resolve(await activate(second.id));
+    await pending;
+
+    expect(root.querySelector("[data-field='action-url']")).toBeNull();
+    expect(element(root, "[data-field='profile-name']").value).toBe("Second");
+    await element(root, "[data-key='0']").click();
+    expect(element(root, "[data-field='action-url']").value).toBe("https://second.example/");
+    await element(root, "[data-action='simulate-input']").click();
+    expect(api.virtualInputs[0]?.profileId).toBe(second.id);
+    await element(root, "[data-field='action-url']").input("https://updated.example/");
+    await element(root, "[data-action='save-action']").click();
+    const saved = await api.getSnapshot();
+    if (!saved.ok) throw new Error("Expected snapshot");
+    expect(saved.value.profiles[0]!.pages[0]!.keys[0]!.action).toBeNull();
+    expect(saved.value.profiles[1]!.pages[0]!.keys[0]!.action?.url).toBe("https://updated.example/");
+    await element(root, "[data-encoder-control='press']").click();
+    expect(element(root, "[data-field='action-url']").value).toBe("https://encoder.example/");
+    await element(root, "[data-action='clear-action']").click();
+    expect(api.savedPages[1]!.encoders[0]!.press).toBeNull();
+  });
+
+  test("preserves the selected profile and draft when activation fails", async () => {
+    const layout = { pageCount: 1, keyRows: 1, keyColumns: 1, encoderCount: 1 };
+    const first = createEmptyProfile("profile-1", "First", layout, true);
+    const second = createEmptyProfile("profile-2", "Second", layout);
+    const api = new FakeStudioApi({ layout, profiles: [first, second], activeProfileId: first.id });
+    api.activateProfile = async () => err("core_unavailable", "Activation failed.");
+    const root = new TestDomRoot();
+    mountStudio(root as unknown as HTMLElement, api);
+    await flushMicrotasks();
+    await element(root, "[data-key='0']").click();
+    await element(root, "[data-field='action-url']").input("https://unsaved.example/");
+    await element(root, "[data-profile='profile-2']").click();
+    expect(element(root, "[data-profile='profile-1']").className).toBe("selected");
+    expect(element(root, "[data-field='profile-name']").value).toBe("First");
+    expect(element(root, "[data-field='action-url']").value).toBe("https://unsaved.example/");
+    expect(root.innerHTML).toContain("Activation failed.");
   });
 });
 
