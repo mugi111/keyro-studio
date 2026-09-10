@@ -67,6 +67,9 @@ export function reduceCoreEvent(state: UIState, event: CoreEvent): UIState {
     return {
       ...state,
       connection: event.status,
+      actionStatus: event.status.state !== "connected" && state.actionStatus.state === "running"
+        ? { state: "failure", target: state.actionStatus.target, code: "internal", message: "Core disconnected before action completion was confirmed." }
+        : state.actionStatus,
       saveStatus: normalizeSaveStatusForConnection(state.saveStatus, event.status, state.actionDraft)
     };
   }
@@ -179,6 +182,18 @@ export function selectPage(state: UIState, pageIndex: number): UIState {
   });
 }
 
+export function selectProfileForEditing(state: UIState, profileId: string): UIState {
+  if (state.selectedProfileId === profileId || !state.snapshot?.profiles.some((profile) => profile.id === profileId)) {
+    return state;
+  }
+  return clearEditingTarget({
+    ...state,
+    selectedProfileId: profileId,
+    saveStatus: { state: "idle" },
+    error: null
+  });
+}
+
 export function selectKeyTarget(state: UIState, keyIndex: number): UIState {
   return clearDraftIfTargetChanged({
     ...state,
@@ -208,15 +223,15 @@ export function draftUrlForCurrentTarget(state: UIState): string | null {
 }
 
 export function canStartActionSave(state: UIState): boolean {
-  return state.connection.state === "connected" && state.saveStatus.state !== "saving";
+  return state.connection.state === "connected" && state.saveStatus.state !== "saving" && state.profileStatus.state !== "working";
 }
 
 export function canStartProfileOperation(state: UIState): boolean {
-  return state.connection.state === "connected" && state.profileStatus.state !== "working";
+  return state.connection.state === "connected" && state.profileStatus.state !== "working" && state.saveStatus.state !== "saving";
 }
 
 export function canStartVirtualInput(state: UIState): boolean {
-  return state.connection.state === "connected" && state.actionStatus.state !== "running";
+  return state.connection.state === "connected" && state.actionStatus.state !== "running" && state.profileStatus.state !== "working";
 }
 
 export function actionStatusForTarget(state: UIState, target: ActionEditTarget): ActionExecutionStatus | null {

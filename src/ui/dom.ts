@@ -23,6 +23,7 @@ import {
   selectEncoderTarget,
   selectKeyTarget,
   selectPage,
+  selectProfileForEditing,
   selectedPage,
   selectedProfile,
   type UIState
@@ -260,7 +261,8 @@ function bindEvents(context: RenderContext) {
       if (!canStartProfileOperation(context.state)) return;
       context.state = markProfileOperationStarted(context.state, "Activating profile...");
       render(context);
-      await applyProfileSnapshot(context, context.api.activateProfile(node.dataset.profile!), "Profile activated.");
+      const profileId = node.dataset.profile!;
+      await applyProfileSnapshot(context, context.api.activateProfile(profileId), "Profile activated.", profileId);
     });
   });
 
@@ -391,6 +393,9 @@ async function simulateCurrentInput(context: RenderContext) {
   if (result && !result.ok) {
     context.state = markVirtualInputFailed(context.state, result.error.message);
     render(context);
+  } else if (result?.ok && result.value.state === "failure" && context.state.actionStatus.state === "running") {
+    context.state = reduceCoreEvent(context.state, { type: "action", status: result.value });
+    render(context);
   }
 }
 
@@ -407,7 +412,8 @@ async function applySnapshot(context: RenderContext, pending: Promise<Result<Non
 async function applyProfileSnapshot(
   context: RenderContext,
   pending: Promise<Result<NonNullable<UIState["snapshot"]>>>,
-  successMessage: string
+  successMessage: string,
+  selectedProfileId?: string
 ) {
   const result = await pending;
   if (result.ok) {
@@ -415,6 +421,9 @@ async function applyProfileSnapshot(
       reduceCoreEvent({ ...context.state, error: null }, { type: "snapshot", snapshot: result.value }),
       successMessage
     );
+    if (selectedProfileId) {
+      context.state = selectProfileForEditing(context.state, selectedProfileId);
+    }
   } else {
     context.state = markProfileOperationFailed(context.state, result.error.message);
   }
